@@ -367,3 +367,13 @@ Documentation includes:
 **Forge3D** brings powerful AI-driven 3D generation directly to your workstation, combining state-of-the-art open-source models with a polished desktop experience, complete privacy and full local ownership of every generated asset.
 
 </div>
+---
+
+### ⏳ Coming Soon...
+
+> **`[NEXT RELEASE]`**  
+> **FaithC** — *Faithful Contouring & Geometry Refinement.*
+> 
+> The next evolution in mesh precision and edge preservation.  
+> 
+> *Stay tuned. Arriving on the 22th.*
