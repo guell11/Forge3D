@@ -1,12 +1,12 @@
 <div align="center">
 
+# Forge3D
 
-<img width="1983" height="793" alt="image" src="https://github.com/user-attachments/assets/ba52b0a7-54b5-443e-8d03-a9d8738250e3" />
 ### Local AI 3D Generation Engine
 
-**Image → 3D Mesh → UV → PBR Textures → GLB**
+**Image → 3D Mesh → UltraShape → UV → PBR Textures → GLB**
 
-A modern browser-based local 3D generation engine powered by **Stable Fast 3D** and **TRELLIS**, designed to run entirely on consumer GPUs.
+A modern browser-based local 3D generation engine powered by **TRELLIS** and **UltraShape**, designed to run entirely on consumer GPUs.
 
 <img src="assets/banner.png" width="100%">
 
@@ -22,21 +22,21 @@ A modern browser-based local 3D generation engine powered by **Stable Fast 3D** 
 
 # Overview
 
-**Forge3D** is a complete local AI pipeline that transforms a single image into a fully textured 3D model.
+**Forge3D** is a complete local AI pipeline that transforms a single image into a production-ready textured 3D model.
 
-Designed for creators, game developers, artists, and researchers, the entire workflow runs **locally**, keeping every asset on your own machine. No cloud rendering, no subscriptions, no hidden uploads.
+Built for creators, game developers, artists, designers and researchers, the entire workflow runs **100% locally**, ensuring every image, model and generated asset remains on your own machine.
 
-Forge3D combines multiple state-of-the-art generation backends behind a single modern interface.
+Forge3D combines **TRELLIS** with **UltraShape** to produce cleaner geometry, optimized meshes, automatic UV generation and high-quality PBR assets through a single modern interface.
 
 - 🖼️ Image → 3D Mesh
-- 🎨 Automatic UV Unwrapping
+- 🔺 UltraShape Geometry Optimization
+- 🎨 Automatic UV Generation
 - 🌈 PBR Texture Generation
-- 🔺 Quad Remeshing
 - 📦 GLB Export
 - 💾 Fully Offline
 - ⚡ Optimized for Consumer GPUs
 
-The backend intelligently manages VRAM, ensuring only one AI model is loaded at any given time.
+The backend intelligently manages GPU resources using a serialized job queue for stable and predictable execution.
 
 ---
 
@@ -44,7 +44,7 @@ The backend intelligently manages VRAM, ensuring only one AI model is loaded at 
 
 ## 🎨 Modern Workspace
 
-A professional dark interface inspired by modern 3D applications.
+A professional dark interface inspired by modern 3D software.
 
 Features include:
 
@@ -53,46 +53,39 @@ Features include:
 - Generation history
 - Real-time progress tracking
 - GPU monitoring
-- Built-in Three.js viewer
+- Integrated Three.js viewer
 - Instant GLB preview
+- Local asset management
 
 ---
 
-## ⚙️ Dual AI Engine
+# ⚙️ AI Pipeline
 
-Forge3D supports two independent generation pipelines.
+Forge3D is powered by a single optimized pipeline built around **TRELLIS** and **UltraShape**.
 
-### Stable Fast 3D (Default)
+### TRELLIS + UltraShape
 
-Optimized for complete production-ready assets.
+The default generation workflow provides:
 
-✔ Mesh generation
+✔ High-quality mesh generation
 
-✔ UV unwrap
+✔ Geometry refinement
 
-✔ Texture generation
-
-✔ Physically Based Rendering (PBR)
+✔ Automatic optimization
 
 ✔ Quad remeshing
 
-Perfect for game assets, visualization and rapid prototyping.
+✔ UV generation
 
----
+✔ PBR texture generation
 
-### TRELLIS
+✔ GLB export
 
-Alternative backend specialized in high-quality geometry generation.
-
-Recommended when:
-
-- maximum mesh fidelity is required
-- textures will be created later
-- custom pipelines are used
+UltraShape performs an additional optimization pass after TRELLIS, producing cleaner topology, smoother surfaces and significantly better geometry for game engines, visualization and 3D printing.
 
 Runs locally through:
 
-```
+```text
 GET  /health
 
 POST /generate
@@ -102,26 +95,36 @@ POST /generate
 
 # 🚀 Smart GPU Scheduler
 
-Unlike many community implementations, Forge3D never attempts to load multiple large diffusion models simultaneously.
+Forge3D executes every generation through a serialized GPU pipeline.
 
-```
+```text
 GPU Queue
 
 ┌──────────────┐
-│ StableFast3D │
+│   TRELLIS    │
 └──────┬───────┘
        │
-   unload VRAM
        ▼
 ┌──────────────┐
-│   TRELLIS    │
+│ UltraShape   │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ UV + Texture │
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ GLB Export   │
 └──────────────┘
 ```
 
 Benefits:
 
 - Lower VRAM usage
-- Better stability
+- Stable generation pipeline
+- Automatic mesh optimization
 - Fewer CUDA Out-Of-Memory errors
 - Predictable GPU scheduling
 
@@ -129,18 +132,18 @@ Benefits:
 
 # Recommended Presets
 
-| VRAM | Default Engine | Resolution | Recommended Use |
-|------|----------------|------------|-----------------|
-| 6 GB | TRELLIS Q4 | 512 | Geometry testing |
-| 8 GB | Stable Fast 3D | 1024 | Complete textured assets |
-| 12 GB | Stable Fast 3D Q8 | 2K Atlas | High quality production |
-| 16 GB | Stable Fast 3D + UltraShape | 1024 | Maximum quality |
+| VRAM | Engine | Resolution | Recommended Use |
+|------|--------|------------|-----------------|
+| 6 GB | TRELLIS Q4 + UltraShape | 512 | Lightweight generation and testing |
+| 8 GB | TRELLIS Q4 + UltraShape | 1024 | Everyday asset creation |
+| 12 GB | TRELLIS Q8 + UltraShape | 2K Atlas | High-quality production |
+| 16 GB | TRELLIS Q8 + UltraShape | 2K Atlas | Maximum quality and faster generation |
 
 ---
 
 # Architecture
 
-```
+```text
                  Browser
 
          React + Three.js
@@ -150,14 +153,18 @@ Benefits:
                 │
         GPU Job Scheduler
                 │
-      ┌─────────┴─────────┐
-      │                   │
-      ▼                   ▼
- Stable Fast 3D       TRELLIS
-      │                   │
-      └─────────┬─────────┘
+                ▼
+            TRELLIS
+                │
+                ▼
+           UltraShape
+                │
+                ▼
+        UV + PBR Pipeline
+                │
                 ▼
          GLB Validation
+                │
                 ▼
       Local Gallery & Export
 ```
@@ -175,13 +182,13 @@ Requirements
 
 Open:
 
-```
+```text
 installation/
 ```
 
 Choose the installer matching your GPU.
 
-```
+```text
 bat-low-vram-6gb.bat
 
 bat-8gb-vram.bat
@@ -193,13 +200,13 @@ bat-16gb-vram.bat
 
 When installation finishes:
 
-```
+```text
 run.bat
 ```
 
 Open:
 
-```
+```text
 http://127.0.0.1:5173
 ```
 
@@ -209,7 +216,7 @@ http://127.0.0.1:5173
 
 Equivalent scripts are included.
 
-```
+```text
 low-vram-6gb.sh
 
 8gb-vram.sh
@@ -229,7 +236,7 @@ Run
 
 # Export Pipeline
 
-Supported outputs:
+Supported outputs
 
 - GLB
 - PBR Materials
@@ -239,26 +246,28 @@ Every exported model passes validation before becoming available.
 
 Validation includes:
 
-- Mesh detection
+- Mesh integrity
 - UV verification
 - Embedded textures
 - Material inspection
 
-Forge3D never labels an asset as PBR unless all required components are actually present.
+Forge3D validates every exported asset before it appears in the local gallery.
 
 ---
 
 # UltraShape
 
-The 16 GB preset optionally installs UltraShape.
+Every Forge3D installation includes **UltraShape** as part of the generation pipeline.
 
-UltraShape remains experimental and requires its own compatible runtime.
+UltraShape automatically performs:
 
-Installation automatically downloads:
+- Mesh cleanup
+- Surface refinement
+- Geometry optimization
+- Quad remeshing
+- Production-ready topology
 
-- Repository
-- Model checkpoint
-- Environment
+No additional configuration is required.
 
 ---
 
@@ -269,7 +278,8 @@ Installation automatically downloads:
 | TRELLIS Q4 | ~6 GB |
 | TRELLIS Q8 | ~9.5 GB |
 | UltraShape | ~7.4 GB |
-| Dependencies | Variable |
+| Python Dependencies | Variable |
+| Generated Assets | User Defined |
 
 ---
 
@@ -286,11 +296,10 @@ Installation automatically downloads:
 - FastAPI
 - Python
 
-### AI Models
+### AI
 
-- Stable Fast 3D
 - TRELLIS
-- UltraShape (Optional)
+- UltraShape
 
 ### Rendering
 
@@ -327,7 +336,7 @@ Your data never leaves your computer.
 
 # Documentation
 
-```
+```text
 docs/
 ├── MANUAL.md
 ├── RESEARCH.md
@@ -336,31 +345,30 @@ docs/
 
 Documentation includes:
 
-- Installation
-- Recovery procedures
-- Backend architecture
-- Adapter installation
-- Technical research
-- Known limitations
+- Installation Guide
+- GPU Presets
+- Backend Architecture
+- API Reference
+- Recovery Procedures
+- Technical Research
+- Known Limitations
 
 ---
 
 # Licensing
 
-Stable Fast 3D is distributed under the **Stability AI Community License**.
+Forge3D integrates multiple open-source projects.
 
-Some checkpoints are downloaded from community mirrors.
+Each third-party repository, model checkpoint and dependency remains subject to its own license.
 
-Commercial usage may require additional licensing depending on your organization's annual revenue and the specific model being used.
-
-Always review the licenses associated with each repository and checkpoint before distributing generated assets.
+Please review the license of every downloaded model before using generated assets in commercial projects.
 
 ---
 
 <div align="center">
 
-## ⭐ Star this repository if you like local AI.
+## ⭐ Star this repository if you enjoy local AI.
 
-**Forge3D** brings modern AI-powered 3D generation directly to your workstation, combining powerful open-source models with a polished desktop experience and complete local privacy.
+**Forge3D** brings powerful AI-driven 3D generation directly to your workstation, combining state-of-the-art open-source models with a polished desktop experience, complete privacy and full local ownership of every generated asset.
 
 </div>
