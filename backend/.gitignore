@@ -1,0 +1,7 @@
+# Runtime assets can be large and are recreated locally.
+data/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env

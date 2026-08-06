@@ -1,0 +1,52 @@
+# ⚙️ Comparativo dos Perfis de Instalação (VRAM)
+
+O Forge3D ajusta os modelos GGUF baixados, a resolução da malha e a disponibilidade de módulos extras com base no perfil de VRAM escolhido.
+
+---
+
+### 🟢 `bat-low-vram-6gb.bat` (Perfil 6 GB)
+- **O que TEM:**
+  - Modelo TRELLIS apenas em quantização **Q4** (baixo consumo de memória).
+  - Geometria travada em **512px**.
+  - Textura Atlas 1K / PBR 1K (limite de 150.000 polígonos).
+  - Suporte ao **Blender 4.5 LTS** ativado.
+- **O que NÃO TEM:**
+  - ❌ **UltraShape Desativado:** Bloqueado no código por falta de VRAM.
+  - ❌ Sem modelos em **Q8**.
+  - ❌ Sem opções de alta resolução (1024px / 1536px).
+
+---
+
+### 🔵 `bat-8gb-vram.bat` (Perfil 8 GB - Padrão)
+- **O que TEM:**
+  - Modelo TRELLIS em quantização **Q4**.
+  - Geometria em **512px** (limite de 150.000 polígonos).
+  - Suporte ao **Blender 4.5 LTS** ativado.
+  - Suporte ao **UltraShape Experimental** (apenas no modo `economy`).
+- **O que NÃO TEM:**
+  - ❌ Sem modelos **Q8** nativos.
+  - ❌ Sem o modo `full` do UltraShape.
+
+---
+
+### 🟣 `bat-12gb-vram.bat` (Perfil 12 GB)
+- **O que TEM:**
+  - Baixa automaticamente os modelos em **Q4 e Q8**.
+  - Presets de qualidade: **Equilibrado** (Q4 / 512px) e **Detalhado** (Q8 / 1024px).
+  - Atlas 2K / PBR 1K (limite de 200.000 polígonos).
+  - Suporte ao **Blender 4.5 LTS** e **UltraShape Experimental** (modo `economy`).
+- **O que NÃO TEM:**
+  - ❌ Sem preset de ultra resolução (1536px).
+  - ❌ Sem o modo `full` do UltraShape.
+
+---
+
+### 🔴 `bat-16gb-vram.bat` (Perfil 16 GB+)
+- **O que TEM:**
+  - Baixa todos os modelos em **Q4 e Q8**.
+  - Presets liberados: **Equilibrado** (512px), **Detalhado** (1024px) e **Máximo** (1536px / 300.000 polígonos).
+  - Atlas 2K / PBR 1K.
+  - Suporte ao **Blender 4.5 LTS**.
+  - **UltraShape Experimental liberado em modo FULL** (e `economy`).
+- **O que NÃO TEM:**
+  - Nenhuma trava de software ou resolução.
