@@ -8,7 +8,7 @@
 
 A modern browser-based local 3D generation engine powered by **TRELLIS** and **UltraShape**, designed to run entirely on consumer GPUs.
 
-<img src="assets/banner.png" width="100%">
+<img width="1983" height="793" alt="image" src="https://github.com/user-attachments/assets/b6b8da8f-8068-4902-aa2f-d436e7b66d51" />
 
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB?logo=python)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)
