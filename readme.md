@@ -355,13 +355,8 @@ Documentation includes:
 
 ---
 
-# Licensing
+<img width="2223" height="1297" alt="image" src="https://github.com/user-attachments/assets/588d22ee-ae57-4486-bc20-ed73c051650b" />
 
-Forge3D integrates multiple open-source projects.
-
-Each third-party repository, model checkpoint and dependency remains subject to its own license.
-
-Please review the license of every downloaded model before using generated assets in commercial projects.
 
 ---
 
