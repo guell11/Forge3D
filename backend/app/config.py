@@ -141,6 +141,14 @@ class Settings:
     ultrashape_calibration_seconds: int | None = field(
         default_factory=lambda: max(0, _int_env("ULTRASHAPE_CALIBRATION_SECONDS", 0)) or None
     )
+    # FaithC runs in a separate Python process because its Torch/CUDA extension
+    # must match the environment used to build it. It is opt-in and has no
+    # model checkpoint.
+    faithc_enabled: bool = field(default_factory=lambda: _bool_env("FAITHC_ENABLED", False))
+    faithc_python: Path | None = field(default_factory=lambda: _path_env("FAITHC_PYTHON"))
+    faithc_worker: Path | None = field(default_factory=lambda: _path_env("FAITHC_WORKER"))
+    faithc_timeout_seconds: int = field(default_factory=lambda: _int_env("FAITHC_TIMEOUT_SECONDS", 900))
+    faithc_probe_timeout_seconds: int = field(default_factory=lambda: _int_env("FAITHC_PROBE_TIMEOUT_SECONDS", 90))
     # A TRELLIS CLI invocation exits after each job. A long-lived HTTP server
     # must expose a local release endpoint before the backend can honestly
     # start an UltraShape worker on the same GPU.

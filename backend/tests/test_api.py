@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import base64
 import asyncio
 import json
 import struct
 import sys
 import time
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -21,9 +22,9 @@ from app.quality import validate_glb
 from app.schemas import GenerationOptions
 
 
-ONE_PIXEL_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLq3gAAAABJRU5ErkJggg=="
-)
+_png_buffer = BytesIO()
+Image.new("RGB", (1, 1), (210, 80, 30)).save(_png_buffer, format="PNG")
+ONE_PIXEL_PNG = _png_buffer.getvalue()
 
 
 @pytest.fixture()
@@ -252,17 +253,27 @@ def test_glb_audit_reports_actual_pbr_map_slots_and_image_dimensions(tmp_path) -
     binary = raw[binary_start:]
     png = ONE_PIXEL_PNG
     uv_offset = len(binary)
-    binary += struct.pack("<8f", 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0)
+    binary += struct.pack(
+        "<16f",
+        0.0, 0.0,
+        1.0, 0.0,
+        1.0, 1.0,
+        0.0, 1.0,
+        0.0, 0.0,
+        1.0, 0.0,
+        1.0, 1.0,
+        0.0, 1.0,
+    )
     image_offset = len(binary)
     binary += png
     document["buffers"][0]["byteLength"] = len(binary)
     document["bufferViews"].extend(
         [
-            {"buffer": 0, "byteOffset": uv_offset, "byteLength": 32, "target": 34962},
+            {"buffer": 0, "byteOffset": uv_offset, "byteLength": 64, "target": 34962},
             {"buffer": 0, "byteOffset": image_offset, "byteLength": len(png)},
         ]
     )
-    document["accessors"].append({"bufferView": 2, "componentType": 5126, "count": 4, "type": "VEC2"})
+    document["accessors"].append({"bufferView": 2, "componentType": 5126, "count": 8, "type": "VEC2"})
     primitive = document["meshes"][0]["primitives"][0]
     primitive["attributes"]["TEXCOORD_0"] = 2
     document["images"] = [{"bufferView": 3, "mimeType": "image/png"}]

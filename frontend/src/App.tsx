@@ -16,9 +16,7 @@ import {
   Focus,
   Heart,
   History,
-  Image as ImageIcon,
   ImagePlus,
-  Layers3,
   LoaderCircle,
   Maximize2,
   Paintbrush,
@@ -39,12 +37,20 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import { ApiError, localApi } from "./api";
 import type { JobStreamState } from "./api";
+import {
+  canChangeReference,
+  getGenerationReadiness,
+  isGenerationBusy,
+} from "./generationReadiness";
+import type {
+  GenerationActivity,
+  GenerationBlockReason,
+} from "./generationReadiness";
 import type {
   ConnectionState,
   EngineCapabilities,
@@ -60,23 +66,6 @@ import type { ViewerHandle } from "./Viewer";
 const Viewer = lazy(() => import("./Viewer"));
 
 const FAVORITES_KEY = "forge3d:favourite-job-ids";
-const FALLBACK_PROFILE: EngineProfile = {
-  id: "8gb",
-  label: "RTX 40 · 8 GB",
-  vramLabel: "8 GB VRAM",
-  description: "Perfil equilibrado para geração local.",
-};
-const FALLBACK_QUALITIES: TrellisQuality[] = [
-  {
-    id: "profile-8gb",
-    label: "Perfil instalado — 512 px / atlas 1024 px",
-    description: "Limite seguro detectado para o perfil ativo.",
-    resolution: 512,
-    atlas: 1024,
-    available: true,
-  },
-];
-
 type Page = "home" | "assets" | "docs";
 type ViewMode = "perspective" | "front" | "side";
 type ActiveRail = "image" | "model" | "split" | "remesh" | "texture" | "edit";
@@ -104,19 +93,6 @@ type AdvancedSettings = {
   scale: [string, string, string];
 };
 
-const railItems: Array<{
-  id: ActiveRail;
-  label: string;
-  icon: typeof ImageIcon;
-}> = [
-  { id: "image", label: "Imagem", icon: ImageIcon },
-  { id: "model", label: "Modelo", icon: WandSparkles },
-  { id: "split", label: "Dividir", icon: Split },
-  { id: "remesh", label: "Remesh", icon: ScanLine },
-  { id: "texture", label: "Textura", icon: Paintbrush },
-  { id: "edit", label: "Editar", icon: Settings2 },
-];
-
 function readIds(key: string): Set<string> {
   try {
     const value = JSON.parse(localStorage.getItem(key) || "[]");
@@ -141,6 +117,28 @@ function errorText(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "Não foi possível concluir esta ação agora.";
 }
+function generationReasonText(reason: GenerationBlockReason): string {
+  switch (reason) {
+    case "choose-image":
+      return "Escolha uma imagem para começar.";
+    case "busy":
+      return "Geração em andamento. Aguarde concluir antes de mudar a imagem.";
+    case "connecting":
+      return "Conectando ao serviço local.";
+    case "offline":
+      return "Sem conexão. Atualize o estado e tente novamente.";
+    case "capabilities":
+      return "Recursos de geração indisponíveis. Atualize ou consulte Ajuda.";
+    case "quality":
+      return "Nenhuma qualidade de geração está disponível nesta instalação.";
+    case "faithc":
+      return "FaithC não está configurado. Desative ou consulte Ajuda.";
+    case "demo":
+      return "Geração indisponível em modo de diagnóstico. Consulte Ajuda.";
+    default:
+      return "Pronto para gerar.";
+  }
+}
 function isRunning(job?: GenerationJob | null): boolean {
   return job?.status === "queued" || job?.status === "running";
 }
@@ -161,20 +159,6 @@ function prettyTool(tool?: string): string {
   if (value.includes("trellis")) return "TRELLIS 2";
   if (value.includes("valid")) return "Auditoria GLB";
   return tool || "TRELLIS 2";
-}
-function stageText(job?: GenerationJob | null): string {
-  if (job?.events?.length)
-    return job.events.at(-1)?.message || job.currentStage || "Processando";
-  if (job?.currentStage || job?.stage)
-    return job.currentStage || job.stage || "Processando";
-  if (job?.status === "queued") return "Aguardando a GPU local";
-  if (job?.status === "running")
-    return "TRELLIS 2 gerando malha, UV e materiais PBR";
-  if (job?.status === "completed")
-    return job.validation?.valid
-      ? "GLB e materiais validados"
-      : "Resultado disponível para auditoria";
-  return "Envie uma imagem para começar";
 }
 function formatTime(seconds?: number): string {
   if (seconds === undefined || seconds < 0) return "—";
@@ -291,12 +275,16 @@ export default function App() {
   const [seed, setSeed] = useState("");
   const [view, setView] = useState<ViewMode>("perspective");
   const [activeRail, setActiveRail] = useState<ActiveRail>("model");
-  const [rightPanel, setRightPanel] = useState<"assets" | "properties">(
-    "assets",
-  );
   const [job, setJob] = useState<GenerationJob | null>(null);
+  const [operationParent, setOperationParent] = useState<{
+    job: GenerationJob;
+    url: string;
+  } | null>(null);
   const [history, setHistory] = useState<GenerationJob[]>([]);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [historyNextOffset, setHistoryNextOffset] = useState<number | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [historyError, setHistoryError] = useState("");
   const [historyQuery, setHistoryQuery] = useState("");
   const [historyStatus, setHistoryStatus] = useState<HistoryStatus>("all");
@@ -305,16 +293,18 @@ export default function App() {
     readIds(FAVORITES_KEY),
   );
   const [targetTriangles, setTargetTriangles] = useState("300000");
+  const [faithcMode, setFaithcMode] = useState<"off" | "geometry">("off");
+  const [faithcResolution, setFaithcResolution] = useState<128 | 256 | 512>(256);
   const [advanced, setAdvanced] = useState<AdvancedSettings>({
     background: "auto",
     uv: "xatlas",
-    maxTokens: "49152",
+    maxTokens: "16384",
     remeshBand: "",
     decimationGrid: "",
     webp: false,
     gss: "",
     gsh: "",
-    flashAttention: true,
+    flashAttention: false,
     f32: false,
     ultraQuality: "economy",
     ultraSteps: "12",
@@ -336,21 +326,39 @@ export default function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [streamState, setStreamState] = useState<JobStreamState>("disabled");
+  const imageAnalysisVersionRef = useRef(0);
+  const historyRequestVersionRef = useRef(0);
+  const historyOffsetRef = useRef<number | null>(null);
+  const historyReloadRef = useRef<() => void>(() => undefined);
+  const historyFiltersRef = useRef({
+    query: historyQuery,
+    status: historyStatus,
+    favouritesOnly,
+    favourites,
+  });
+  historyFiltersRef.current = { query: historyQuery, status: historyStatus, favouritesOnly, favourites };
 
-  const activeProfile = health?.activeProfile || FALLBACK_PROFILE;
-  const trellisQualities = capabilities?.trellisQualities.length
-    ? capabilities.trellisQualities
-    : FALLBACK_QUALITIES;
-  const selectedQuality =
-    trellisQualities.find((quality) => quality.id === trellisQualityId) ||
-    trellisQualities[0];
+  const activeProfile = health?.activeProfile;
+  const trellisQualities = capabilities?.trellisQualities || [];
+  const selectedQuality = trellisQualities.find(
+    (quality) => quality.id === trellisQualityId,
+  );
   const ultraAvailable = capabilities?.ultrashapeAvailable === true;
-  const busy = isUploading || isRunning(job);
+  const activity: GenerationActivity = isUploading
+    ? "uploading"
+    : job?.status || null;
+  const busy = isGenerationBusy(activity);
   const generatedModelUrl =
     job?.status === "completed"
       ? modelCache[job.id] || localApi.resolveAssetUrl(job.output?.url)
       : undefined;
-  const progress = isUploading ? 7 : job?.progress || 0;
+  const displayedModelUrl = generatedModelUrl || operationParent?.url;
+  const displayedJob = generatedModelUrl ? job : operationParent?.job || job;
+  const downloadJobId =
+    generatedModelUrl && job?.status === "completed"
+      ? job.id
+      : operationParent?.job.id || job?.id;
+  const progress = job?.progress || 0;
   const elapsed =
     job?.elapsedSeconds ??
     (job?.createdAt && busy
@@ -361,44 +369,93 @@ export default function App() {
       : undefined);
   const isVerified =
     job?.status === "completed" && job.validation?.valid === true;
-  const projectName =
-    file?.name.replace(/\.[^/.]+$/, "") ||
-    job?.inputFilename?.replace(/\.[^/.]+$/, "") ||
-    "Sem projeto aberto";
+  const runtimeReadiness = getGenerationReadiness({
+    hasFile: true,
+    activity: null,
+    connection,
+    capabilities,
+    selectedQuality,
+    faithcMode,
+    demoMode: health?.demoMode === true,
+  });
   const engineLabel =
-    connection === "checking"
-      ? "Verificando engine"
-      : connection === "offline"
-        ? "Engine offline"
-        : health?.demoMode
-          ? "Diagnóstico local"
-          : "Engine local online";
+    runtimeReadiness.reason === "connecting"
+      ? "Conectando"
+      : runtimeReadiness.reason === "offline"
+        ? "Sem conexão"
+        : runtimeReadiness.canGenerate
+          ? "Pronto para gerar"
+          : "Instalação pendente";
 
   const mergeHistory = useCallback((next: GenerationJob) => {
-    setHistory((current) => [
-      next,
-      ...current.filter((item) => item.id !== next.id),
-    ]);
+    const filters = historyFiltersRef.current;
+    const query = filters.query.trim().toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+    const haystack = [
+      next.id,
+      next.inputFilename || "",
+      next.prompt || "",
+      next.metadata?.title || "",
+      next.metadata?.notes || "",
+      (next.metadata?.tags || []).join(" "),
+      next.jobKind || "",
+    ].filter(Boolean).join(" ").toLowerCase();
+    const matches = (filters.status === "all" || next.status === filters.status)
+      && (!filters.favouritesOnly || next.favorite || filters.favourites.has(next.id))
+      && (!query || haystack.includes(query));
+    setHistory((current) => {
+      const exists = current.some((item) => item.id === next.id);
+      const withoutCurrent = current.filter((item) => item.id !== next.id);
+      if (!matches) return withoutCurrent;
+      return exists ? [next, ...withoutCurrent] : current;
+    });
   }, []);
-  const loadHistory = useCallback(async () => {
-    setHistoryLoading(true);
+  const loadHistory = useCallback(async (append = false) => {
+    const offset = append ? historyOffsetRef.current : 0;
+    if (offset === null) return;
+    const requestVersion = ++historyRequestVersionRef.current;
+    if (append) setHistoryLoadingMore(true);
+    else setHistoryLoading(true);
     setHistoryError("");
     try {
-      setHistory(await localApi.jobs(200));
+      const page = await localApi.jobs({
+        limit: 50,
+        offset,
+        search: historyQuery,
+        status: historyStatus === "all" ? undefined : historyStatus,
+        favorite: favouritesOnly ? true : undefined,
+      });
+      if (requestVersion !== historyRequestVersionRef.current) return;
+      setHistory((current) => {
+        if (!append) return page.jobs;
+        const seen = new Set(current.map((item) => item.id));
+        return [...current, ...page.jobs.filter((item) => !seen.has(item.id))];
+      });
+      setHistoryTotal(page.total);
+      historyOffsetRef.current = page.nextOffset;
+      setHistoryNextOffset(page.nextOffset);
     } catch (error) {
-      setHistoryError(errorText(error));
+      if (requestVersion === historyRequestVersionRef.current)
+        setHistoryError(errorText(error));
     } finally {
-      setHistoryLoading(false);
+      if (requestVersion === historyRequestVersionRef.current) {
+        setHistoryLoading(false);
+        setHistoryLoadingMore(false);
+      }
     }
-  }, []);
+  }, [favouritesOnly, historyQuery, historyStatus]);
+  historyReloadRef.current = () => { void loadHistory(); };
   const refreshConnection = useCallback(async () => {
     setConnection("checking");
     try {
       const nextHealth = await localApi.health();
       setHealth(nextHealth);
+      let capabilityError = "";
       try {
         const nextCapabilities = await localApi.capabilities();
         setCapabilities(nextCapabilities);
+        setFaithcResolution((current) => nextCapabilities.faithc.resolutions.includes(current)
+          ? current
+          : nextCapabilities.faithc.recommendedResolution);
         setTrellisQualityId((current) =>
           nextCapabilities.trellisQualities.some(
             (quality) => quality.id === current,
@@ -408,10 +465,12 @@ export default function App() {
                 (quality) => quality.available !== false,
               )?.id || current,
         );
-      } catch {
+      } catch (error) {
         setCapabilities(null);
+        capabilityError = `Não foi possível carregar os recursos disponíveis da engine: ${errorText(error)}`;
       }
       setConnection("ready");
+      setLastError(capabilityError);
     } catch (error) {
       setConnection("offline");
       setHealth(null);
@@ -421,8 +480,14 @@ export default function App() {
 
   useEffect(() => {
     void refreshConnection();
-    void loadHistory();
-  }, [loadHistory, refreshConnection]);
+  }, [refreshConnection]);
+  useEffect(() => {
+    const requestVersion = ++historyRequestVersionRef.current;
+    const timeout = window.setTimeout(() => {
+      if (requestVersion === historyRequestVersionRef.current) void loadHistory();
+    }, historyQuery.trim() ? 250 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadHistory]);
   useEffect(() => {
     writeIds(FAVORITES_KEY, favourites);
   }, [favourites]);
@@ -448,10 +513,17 @@ export default function App() {
       return undefined;
     }
     let active = true;
+    let terminalRefreshDone = false;
+    let pollInFlight = false;
+    let pollInterval: number | undefined;
     const accept = (next: GenerationJob) => {
       if (!active) return;
       setJob(next);
       mergeHistory(next);
+      if (!terminalRefreshDone && ["completed", "failed", "cancelled"].includes(next.status)) {
+        terminalRefreshDone = true;
+        historyReloadRef.current();
+      }
       if (next.status === "completed")
         setNotice(
           next.validation?.valid
@@ -461,20 +533,37 @@ export default function App() {
       if (next.status === "failed")
         setLastError(next.error || "A geração não foi concluída.");
     };
-    const closeStream = localApi.subscribeJob(job.id, accept, setStreamState);
     const poll = async () => {
+      if (!active || pollInFlight) return;
+      pollInFlight = true;
       try {
         accept(await localApi.job(job.id));
       } catch (error) {
         if (active) setLastError(`Acompanhamento pausado: ${errorText(error)}`);
+      } finally {
+        pollInFlight = false;
       }
     };
-    void poll();
-    const interval = window.setInterval(() => void poll(), 1400);
+    const startPolling = () => {
+      if (!active || pollInterval !== undefined) return;
+      setStreamState("polling");
+      void poll();
+      pollInterval = window.setInterval(() => void poll(), 1400);
+    };
+    const closeStream = localApi.subscribeJob(job.id, accept, (state) => {
+      if (!active) return;
+      setStreamState(state);
+      if (state === "disabled" || state === "polling") startPolling();
+      if (state === "live" && pollInterval !== undefined) {
+        window.clearInterval(pollInterval);
+        pollInterval = undefined;
+      }
+    });
+    if (!closeStream) startPolling();
     return () => {
       active = false;
       closeStream?.();
-      window.clearInterval(interval);
+      if (pollInterval !== undefined) window.clearInterval(pollInterval);
     };
   }, [job?.id, job?.status, mergeHistory]);
   useEffect(() => {
@@ -486,22 +575,12 @@ export default function App() {
       );
   }, [job]);
 
-  const visibleHistory = useMemo(
-    () =>
-      history.filter((item) => {
-        if (historyStatus !== "all" && item.status !== historyStatus)
-          return false;
-        if (favouritesOnly && !(item.favorite || favourites.has(item.id)))
-          return false;
-        const haystack =
-          `${item.id} ${item.inputFilename || ""} ${item.prompt || ""} ${item.currentTool || ""}`.toLowerCase();
-        return haystack.includes(historyQuery.trim().toLowerCase());
-      }),
-    [favourites, favouritesOnly, history, historyQuery, historyStatus],
-  );
-
   function chooseFile(nextFile: File | undefined) {
     if (!nextFile) return;
+    if (!canChangeReference(activity)) {
+      setNotice(generationReasonText("busy"));
+      return;
+    }
     if (
       !["image/png", "image/jpeg", "image/webp", "image/bmp"].includes(
         nextFile.type,
@@ -512,27 +591,36 @@ export default function App() {
     }
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     const nextPreview = URL.createObjectURL(nextFile);
+    const analysisVersion = ++imageAnalysisVersionRef.current;
     objectUrlRef.current = nextPreview;
     setFile(nextFile);
     setPreviewUrl(nextPreview);
     setJob(null);
+    setOperationParent(null);
     setModelError("");
     setLastError("");
     setImageWarning("");
     setPage("home");
     void inspectReferenceImage(nextFile).then((warning) => {
-      if (warning) setImageWarning(warning);
+      if (analysisVersion === imageAnalysisVersionRef.current && objectUrlRef.current === nextPreview)
+        setImageWarning(warning || "");
     });
     setNotice(
       "Imagem carregada. A qualidade será limitada pelo perfil instalado.",
     );
   }
   function clearProject() {
+    if (!canChangeReference(activity)) {
+      setNotice(generationReasonText("busy"));
+      return;
+    }
+    imageAnalysisVersionRef.current += 1;
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = undefined;
     setFile(null);
     setPreviewUrl(undefined);
     setJob(null);
+    setOperationParent(null);
     setImageWarning("");
     setModelError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -548,6 +636,7 @@ export default function App() {
         nextFavorite ? copied.add(jobId) : copied.delete(jobId);
         return copied;
       });
+      historyReloadRef.current();
     } catch (error) {
       setLastError(
         `Não foi possível atualizar o favorito: ${errorText(error)}`,
@@ -555,6 +644,10 @@ export default function App() {
     }
   }
   async function deleteJob(jobId: string) {
+    if (busy && job?.id === jobId) {
+      setNotice(generationReasonText("busy"));
+      return;
+    }
     if (
       !window.confirm(
         "Excluir este job e seus arquivos locais? Esta ação não pode ser desfeita.",
@@ -564,12 +657,14 @@ export default function App() {
     try {
       await localApi.deleteJob(jobId);
       setHistory((items) => items.filter((item) => item.id !== jobId));
+      setHistoryTotal((count) => Math.max(0, count - 1));
       setFavourites((items) => {
         const copied = new Set(items);
         copied.delete(jobId);
         return copied;
       });
       if (job?.id === jobId) clearProject();
+      historyReloadRef.current();
       setNotice("Job e arquivos associados foram excluídos da engine local.");
     } catch (error) {
       setLastError(`Não foi possível excluir o job: ${errorText(error)}`);
@@ -621,20 +716,27 @@ export default function App() {
             : undefined,
         transform,
       });
+      if (generatedModelUrl)
+        setOperationParent({ job, url: generatedModelUrl });
       setJob(next);
       mergeHistory(next);
+      historyReloadRef.current();
       setNotice(`${kind} enviado para a fila local como operação derivada.`);
     } catch (error) {
       setLastError(`Não foi possível iniciar ${kind}: ${errorText(error)}`);
     }
   }
   async function reopenJob(jobId: string) {
+    if (busy) {
+      setNotice(generationReasonText("busy"));
+      return;
+    }
     try {
       const next = await localApi.job(jobId);
       setJob(next);
+      setOperationParent(null);
       mergeHistory(next);
       setPage("home");
-      setRightPanel("properties");
       setModelError("");
       const source = localApi.resolveAssetUrl(
         localApi.uploadUrl(next.inputUploadId),
@@ -649,16 +751,33 @@ export default function App() {
     }
   }
   async function handleGenerate() {
-    if (!file) {
-      setActiveRail("image");
-      setNotice("Adicione uma imagem antes de iniciar a geração.");
+    const readiness = getGenerationReadiness({
+      hasFile: Boolean(file),
+      activity,
+      connection,
+      capabilities,
+      selectedQuality,
+      faithcMode,
+      demoMode: health?.demoMode === true,
+    });
+    if (readiness.reason === "choose-image") {
+      fileInputRef.current?.click();
+      return;
+    }
+    if (!readiness.canGenerate) {
+      setNotice(generationReasonText(readiness.reason));
+      return;
+    }
+    const sourceFile = file;
+    if (!sourceFile) {
+      fileInputRef.current?.click();
       return;
     }
     setLastError("");
     setModelError("");
     setIsUploading(true);
     try {
-      const upload = await localApi.upload(file);
+      const upload = await localApi.upload(sourceFile);
       const numericSeed = Number.parseInt(seed, 10);
       const optionalInt = (value: string) =>
         value.trim() && Number.isFinite(Number(value))
@@ -706,11 +825,14 @@ export default function App() {
           ultrashape_octree_resolution: optionalInt(advanced.ultraOctree),
           ultrashape_scale: optionalFloat(advanced.ultraScale),
           ultrashape_low_vram: advanced.ultraLowVram,
+          faithc: faithcMode,
+          faithc_resolution: faithcResolution,
           seed: Number.isFinite(numericSeed) ? numericSeed : undefined,
         },
       });
       setJob(next);
       mergeHistory(next);
+      historyReloadRef.current();
       setNotice(
         "Job enviado para a fila GPU local. Acompanhe as etapas reais no rodapé.",
       );
@@ -732,8 +854,21 @@ export default function App() {
     }
   }
   function selectRail(item: ActiveRail) {
+    if (item === "model") {
+      setActiveRail("model");
+      return;
+    }
+    if (item === "image") {
+      setActiveRail("model");
+      if (canChangeReference(activity)) fileInputRef.current?.click();
+      else setNotice(generationReasonText("busy"));
+      return;
+    }
+    if (!displayedModelUrl) {
+      setNotice("Gere ou reabra um resultado antes de usar estas ferramentas.");
+      return;
+    }
     setActiveRail(item);
-    if (item === "image") fileInputRef.current?.click();
     if (item === "texture" && !job?.validation)
       setNotice(
         "A auditoria de textura PBR aparecerá após uma geração concluída.",
@@ -754,14 +889,14 @@ export default function App() {
       );
   }
   function centerViewer() {
-    if (!generatedModelUrl) {
+    if (!displayedModelUrl) {
       setNotice("Gere ou reabra um modelo antes de centralizar o viewport.");
       return;
     }
     viewerRef.current?.center();
   }
   function captureViewer() {
-    if (!generatedModelUrl) {
+    if (!displayedModelUrl) {
       setNotice("Gere ou reabra um modelo antes de capturar.");
       return;
     }
@@ -796,20 +931,13 @@ export default function App() {
           </strong>
         </button>
         <span className="header-divider" />
-        <button
-          className="space-switch"
-          type="button"
-          onClick={() => setPage("home")}
-        >
-          Espaço 3D <ChevronDown size={13} />
-        </button>
         <nav className="top-nav" aria-label="Navegação principal">
           <button
             className={page === "home" ? "active" : ""}
             type="button"
             onClick={() => setPage("home")}
           >
-            Início
+            Criar
           </button>
           <button
             className={page === "assets" ? "active" : ""}
@@ -819,36 +947,39 @@ export default function App() {
               void loadHistory();
             }}
           >
-            Ativos
+            Biblioteca
           </button>
           <button
             className={page === "docs" ? "active" : ""}
             type="button"
             onClick={() => setPage("docs")}
           >
-            Documentação
+            Ajuda
           </button>
         </nav>
         <div className="header-side">
           <button
-            className={`connection-pill ${connection}`}
+            className={`connection-pill ${connection === "checking" ? "checking" : connection === "offline" ? "offline" : runtimeReadiness.canGenerate ? "ready" : "pending"}`}
             type="button"
             onClick={() => void refreshConnection()}
+            aria-label={`${engineLabel}. Atualizar estado`}
           >
             {connection === "checking" ? (
               <LoaderCircle className="spin" size={14} />
             ) : connection === "offline" ? (
               <CloudOff size={14} />
-            ) : (
+            ) : runtimeReadiness.canGenerate ? (
               <CheckCircle2 size={14} />
+            ) : (
+              <CircleHelp size={14} />
             )}
             <span>{engineLabel}</span>
           </button>
           <button
             className="circle-control"
             type="button"
-            title="Atualizar conexão e histórico"
-            aria-label="Atualizar estado da engine"
+            title="Atualizar conexão e biblioteca"
+            aria-label="Atualizar conexão e biblioteca"
             onClick={() => {
               void refreshConnection();
               void loadHistory();
@@ -858,6 +989,36 @@ export default function App() {
           </button>
         </div>
       </header>
+      <nav className="mobile-nav" aria-label="Navegação principal móvel">
+        <button
+          className={page === "home" ? "active" : ""}
+          type="button"
+          aria-current={page === "home" ? "page" : undefined}
+          onClick={() => setPage("home")}
+        >
+          <WandSparkles size={15} /> <span>Criar</span>
+        </button>
+        <button
+          className={page === "assets" ? "active" : ""}
+          type="button"
+          aria-current={page === "assets" ? "page" : undefined}
+          onClick={() => {
+            setPage("assets");
+            void loadHistory();
+          }}
+        >
+          <History size={15} /> <span>Biblioteca</span>
+        </button>
+        <button
+          className={page === "docs" ? "active" : ""}
+          type="button"
+          aria-label="Documentação e ajuda"
+          aria-current={page === "docs" ? "page" : undefined}
+          onClick={() => setPage("docs")}
+        >
+          <BookOpen size={15} /> <span>Ajuda</span>
+        </button>
+      </nav>
       {page === "home" && (
         <HomeStudio
           activeRail={activeRail}
@@ -877,6 +1038,10 @@ export default function App() {
           ultraDetail={capabilities?.ultrashapeDetail}
           ultrashapeMode={ultrashapeMode}
           setUltrashapeMode={setUltrashapeMode}
+          faithcMode={faithcMode}
+          setFaithcMode={setFaithcMode}
+          faithcResolution={faithcResolution}
+          setFaithcResolution={setFaithcResolution}
           seed={seed}
           setSeed={setSeed}
           prompt={prompt}
@@ -891,7 +1056,6 @@ export default function App() {
           uploading={isUploading}
           generate={handleGenerate}
           job={job}
-          generatedModelUrl={generatedModelUrl}
           modelError={modelError}
           setModelError={setModelError}
           viewerRef={viewerRef}
@@ -901,26 +1065,32 @@ export default function App() {
           centerViewer={centerViewer}
           captureViewer={captureViewer}
           fullscreenViewer={fullscreenViewer}
-          projectName={projectName}
           progress={progress}
           elapsed={elapsed}
           verified={isVerified}
           streamState={streamState}
           cancel={handleCancel}
-          rightPanel={rightPanel}
-          setRightPanel={setRightPanel}
-          reopenJob={reopenJob}
           openDocs={() => setPage("docs")}
           targetTriangles={targetTriangles}
           setTargetTriangles={setTargetTriangles}
           runOperation={runOperation}
+          connection={connection}
+          activity={activity}
+          displayModelUrl={displayedModelUrl}
+          displayJob={displayedJob}
+          downloadJobId={downloadJobId}
+          demoMode={health?.demoMode === true}
+          retryConnection={() => void refreshConnection()}
+          originalDownloadJobId={operationParent?.job.id}
         />
       )}
       {page === "assets" && (
         <AssetsPage
-          history={visibleHistory}
-          allHistoryCount={history.length}
+          history={history}
+          allHistoryCount={historyTotal}
           loading={historyLoading}
+          loadingMore={historyLoadingMore}
+          hasMore={historyNextOffset !== null}
           error={historyError}
           query={historyQuery}
           setQuery={setHistoryQuery}
@@ -933,6 +1103,7 @@ export default function App() {
           reopen={reopenJob}
           remove={deleteJob}
           reload={() => void loadHistory()}
+          loadMore={() => void loadHistory(true)}
         />
       )}
       {page === "docs" && (
@@ -970,13 +1141,17 @@ type HomeProps = {
   ultraDetail?: string;
   ultrashapeMode: "auto" | "off";
   setUltrashapeMode: (mode: "auto" | "off") => void;
+  faithcMode: "off" | "geometry";
+  setFaithcMode: (mode: "off" | "geometry") => void;
+  faithcResolution: 128 | 256 | 512;
+  setFaithcResolution: (resolution: 128 | 256 | 512) => void;
   seed: string;
   setSeed: (value: string) => void;
   prompt: string;
   setPrompt: (value: string) => void;
   advanced: AdvancedSettings;
   setAdvanced: React.Dispatch<React.SetStateAction<AdvancedSettings>>;
-  activeProfile: EngineProfile;
+  activeProfile?: EngineProfile;
   capabilities: EngineCapabilities | null;
   lastError: string;
   clearError: () => void;
@@ -984,7 +1159,6 @@ type HomeProps = {
   uploading: boolean;
   generate: () => void;
   job: GenerationJob | null;
-  generatedModelUrl?: string;
   modelError: string;
   setModelError: (value: string) => void;
   viewerRef: React.RefObject<ViewerHandle | null>;
@@ -994,19 +1168,23 @@ type HomeProps = {
   centerViewer: () => void;
   captureViewer: () => void;
   fullscreenViewer: () => void;
-  projectName: string;
   progress: number;
   elapsed?: number;
   verified: boolean;
   streamState: JobStreamState;
   cancel: () => void;
-  rightPanel: "assets" | "properties";
-  setRightPanel: (value: "assets" | "properties") => void;
-  reopenJob: (id: string) => void;
   openDocs: () => void;
   targetTriangles: string;
   setTargetTriangles: (value: string) => void;
   runOperation: (kind: OperationKind) => void;
+  connection: ConnectionState;
+  activity: GenerationActivity;
+  displayModelUrl?: string;
+  displayJob: GenerationJob | null | undefined;
+  downloadJobId?: string;
+  demoMode: boolean;
+  retryConnection: () => void;
+  originalDownloadJobId?: string;
 };
 
 function HomeStudio(props: HomeProps) {
@@ -1028,6 +1206,10 @@ function HomeStudio(props: HomeProps) {
     ultraDetail,
     ultrashapeMode,
     setUltrashapeMode,
+    faithcMode,
+    setFaithcMode,
+    faithcResolution,
+    setFaithcResolution,
     seed,
     setSeed,
     prompt,
@@ -1042,7 +1224,6 @@ function HomeStudio(props: HomeProps) {
     uploading,
     generate,
     job,
-    generatedModelUrl,
     modelError,
     setModelError,
     viewerRef,
@@ -1052,20 +1233,33 @@ function HomeStudio(props: HomeProps) {
     centerViewer,
     captureViewer,
     fullscreenViewer,
-    projectName,
     progress,
     elapsed,
     verified,
     streamState,
     cancel,
-    rightPanel,
-    setRightPanel,
-    reopenJob,
     openDocs,
     targetTriangles,
     setTargetTriangles,
     runOperation,
+    connection,
+    activity,
+    displayModelUrl,
+    displayJob,
+    downloadJobId,
+    demoMode,
+    retryConnection,
+    originalDownloadJobId,
   } = props;
+  const faithc = capabilities?.faithc;
+  const f32Available = activeProfile?.id === "16gb";
+  const faithcStatus = !faithc?.configured
+    ? "Configure o worker FaithC no backend para habilitar o refinamento."
+    : faithc.probeState === "ready" || faithc.available
+      ? "Worker configurado e GPU validada."
+      : faithc.probeState === "failed"
+        ? "Última validação CUDA falhou. O job tentará validar novamente ao entrar na fila."
+        : "Worker configurado. CUDA será validada quando o job entrar na fila.";
   const railTitle =
     activeRail === "image"
       ? "Imagem de referência"
@@ -1099,16 +1293,42 @@ function HomeStudio(props: HomeProps) {
     ? simplifyCapability.available
     : Boolean(capabilities?.operationKinds.includes("simplify"));
   const operationReason =
-    !job || job.status !== "completed"
-      ? "Reabra ou conclua um GLB validado antes de criar uma operação derivada."
+    busy
+      ? "Aguarde a operação atual terminar antes de iniciar outra."
+      : !job || job.status !== "completed"
+      ? "A operação fica disponível quando o resultado atual terminar."
       : !operationSupported
         ? requestedCapability?.detail ||
           capabilities?.operationsDetail ||
-          "O worker local de operações não está configurado."
+          "Esta operação ainda não está disponível nesta instalação."
         : "";
+  const operationMode = activeRail !== "model" && activeRail !== "image";
+  const actionReadiness = getGenerationReadiness({
+    hasFile: Boolean(file),
+    activity,
+    connection,
+    capabilities,
+    selectedQuality,
+    faithcMode,
+    demoMode,
+  });
+  const currentStep = displayModelUrl
+    ? "result"
+    : busy || job?.status === "failed" || Boolean(file)
+      ? "generate"
+      : "image";
+  const imageStep = file || previewUrl ? "complete" : "pending";
+  const generateStep = displayModelUrl
+    ? "complete"
+    : job?.status === "failed"
+      ? "error"
+      : busy || file
+        ? "current"
+        : "pending";
+  const resultStep = displayModelUrl ? "complete" : "pending";
   const latestActivity = [
-    ...(job?.events || []),
-    ...(job?.logs || []).map((log) => ({
+    ...(displayJob?.events || []),
+    ...(displayJob?.logs || []).map((log) => ({
       message: log.message,
       tool: log.source,
       at: log.at,
@@ -1116,69 +1336,53 @@ function HomeStudio(props: HomeProps) {
   ]
     .slice(-5)
     .reverse();
+  const telemetryJob = job || displayJob;
+  const viewerLoadFailure = Boolean(modelError && !lastError && job?.status !== "failed");
   return (
     <div className="forge-workspace">
-      <aside className="tool-rail" aria-label="Ferramentas do estúdio">
-        {railItems.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.id}
-              title={item.label}
-              aria-label={item.label}
-              className={
-                activeRail === item.id ? "rail-tool selected" : "rail-tool"
-              }
-              type="button"
-              onClick={() => setRail(item.id)}
-            >
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
-        <div className="rail-spacer" />
-        <button
-          className="rail-tool"
-          type="button"
-          title="Abrir documentação local"
-          onClick={openDocs}
-        >
-          <CircleHelp size={18} />
-          <span>Ajuda</span>
-        </button>
-      </aside>
       <aside className="studio-panel" aria-label="Painel de geração">
-        <div className="panel-title">
-          <span className="panel-breadcrumb">
-            <WandSparkles size={14} /> {railTitle}
-          </span>
-          <h1>{activeRail === "model" ? "Imagem para 3D" : railTitle}</h1>
-        </div>
-        <div className="work-tabs">
+        {operationMode && (
           <button
+            className="back-to-create"
             type="button"
-            className={activeRail !== "texture" ? "active" : ""}
             onClick={() => setRail("model")}
           >
-            <WandSparkles size={14} /> Modelo
+            <ChevronRight size={15} /> Voltar para criação
           </button>
-          <button
-            type="button"
-            className={activeRail === "texture" ? "active" : ""}
-            onClick={() => setRail("texture")}
-          >
-            <Paintbrush size={14} /> Textura PBR
-          </button>
+        )}
+        <div className="panel-title">
+          <span className="panel-breadcrumb">
+            <WandSparkles size={14} /> {operationMode ? "Ferramenta do resultado" : "Imagem para 3D"}
+          </span>
+          <h1>{operationMode ? railTitle : "Imagem para 3D"}</h1>
+          <p>
+            {operationMode
+              ? "A operação cria uma nova saída e preserva o GLB original."
+              : "Escolha uma imagem. Forge3D gera um modelo 3D com materiais PBR."}
+          </p>
         </div>
+        {!operationMode && (
+          <ol className="generation-steps" aria-label="Etapas de criação">
+            <li className={imageStep} aria-current={currentStep === "image" ? "step" : undefined}>
+              <span>1</span><strong>Imagem</strong>
+            </li>
+            <li className={generateStep} aria-current={currentStep === "generate" ? "step" : undefined}>
+              <span>2</span><strong>Gerar</strong>
+            </li>
+            <li className={resultStep} aria-current={currentStep === "result" ? "step" : undefined}>
+              <span>3</span><strong>Resultado</strong>
+            </li>
+          </ol>
+        )}
         <input
           ref={fileInputRef}
           className="visually-hidden"
           type="file"
           accept="image/png,image/jpeg,image/webp,image/bmp"
+          disabled={!canChangeReference(activity)}
           onChange={(event) => chooseFile(event.target.files?.[0])}
         />
-        {(activeRail === "image" || activeRail === "model") && (
+        {!operationMode && (
           <>
             <section className="upload-card">
               {previewUrl ? (
@@ -1189,6 +1393,7 @@ function HomeStudio(props: HomeProps) {
                       type="button"
                       onClick={clearProject}
                       aria-label="Remover imagem"
+                      disabled={!canChangeReference(activity)}
                     >
                       <Trash2 size={15} />
                     </button>
@@ -1202,16 +1407,27 @@ function HomeStudio(props: HomeProps) {
                     </strong>
                     <span>
                       {file
-                        ? "Imagem pronta para novo job"
+                        ? actionReadiness.canGenerate
+                          ? "Pronta para gerar"
+                          : "Imagem selecionada"
                         : "Referência restaurada do histórico"}
                     </span>
                   </div>
+                  <button
+                    className="change-reference"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!canChangeReference(activity)}
+                  >
+                    Trocar imagem
+                  </button>
                 </>
               ) : (
                 <button
                   className={`upload-drop ${isDragging ? "dragging" : ""}`}
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={!canChangeReference(activity)}
                   onDragOver={(event) => {
                     event.preventDefault();
                     setIsDragging(true);
@@ -1239,13 +1455,27 @@ function HomeStudio(props: HomeProps) {
             )}
           </>
         )}
-        {(activeRail === "model" || activeRail === "remesh") && (
+        {!operationMode && (
+          <details className="optional-settings">
+            <summary>
+              <span className="optional-summary-title">
+                <Settings2 size={15} /> Ajustes opcionais
+              </span>
+              <span className="optional-summary-detail">
+                {selectedQuality?.label || "Qualidade indisponível"} · UltraShape {ultrashapeMode === "auto" ? "automático" : "desativado"} · FaithC {faithcMode === "geometry" ? `${faithcResolution} px` : "desativado"}
+              </span>
+              <ChevronDown size={15} />
+            </summary>
+            <fieldset className="optional-fields" disabled={busy}>
           <section className="setting-section">
             <div className="setting-label">
               <span>Qualidade TRELLIS aprovada</span>
               <CircleHelp size={13} />
             </div>
             <div className="quality-list">
+              {trellisQualities.length === 0 && (
+                <p className="quality-empty">Qualidades aprovadas ainda não estão disponíveis.</p>
+              )}
               {trellisQualities.map((quality) => (
                 <button
                   key={quality.id}
@@ -1275,8 +1505,61 @@ function HomeStudio(props: HomeProps) {
               ))}
             </div>
           </section>
-        )}
-        {(activeRail === "model" || activeRail === "remesh") && (
+          <section className="faithc-card" aria-labelledby="faithc-heading">
+            <div className="faithc-heading">
+              <div>
+                <strong id="faithc-heading">FaithC</strong>
+                <small>Faithful Contouring &amp; Geometry Refinement</small>
+              </div>
+              <span className={faithc?.configured ? "faithc-badge ready" : "faithc-badge"}>
+                {faithc?.configured ? "Configurado" : "Indisponível"}
+              </span>
+            </div>
+            <p>
+              Refinamento opcional de contorno em artefato separado.
+            </p>
+            <div className="faithc-actions" role="group" aria-label="Modo FaithC">
+              <button
+                type="button"
+                aria-pressed={faithcMode === "off"}
+                className={faithcMode === "off" ? "selected" : ""}
+                onClick={() => setFaithcMode("off")}
+                disabled={busy}
+              >
+                Desativado
+              </button>
+              <button
+                type="button"
+                aria-pressed={faithcMode === "geometry"}
+                className={faithcMode === "geometry" ? "selected" : ""}
+                onClick={() => setFaithcMode("geometry")}
+                disabled={busy || !faithc?.configured}
+              >
+                Geometria
+              </button>
+            </div>
+            {faithcMode === "geometry" && (
+              <label className="faithc-resolution">
+                Resolução
+                <select
+                  value={faithcResolution}
+                  disabled={busy || !faithc?.configured}
+                  onChange={(event) => setFaithcResolution(Number(event.target.value) as 128 | 256 | 512)}
+                >
+                  {(faithc?.resolutions || [128, 256, 512]).map((resolution) => (
+                    <option value={resolution} key={resolution}>{resolution} px</option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <p className="faithc-status" role="status">{faithcStatus}</p>
+            {faithcMode === "geometry" && (
+              <p className="faithc-output-note">Saída FaithC contém geometria sem UV/PBR. GLB principal preservado.</p>
+            )}
+            {!faithc?.configured && (
+              <button className="faithc-help" type="button" onClick={openDocs}>Ver instalação</button>
+            )}
+          </section>
           <section className="setting-section">
             <div className="setting-label">
               <span>Refinamento de geometria</span>
@@ -1315,136 +1598,8 @@ function HomeStudio(props: HomeProps) {
               não é alterável no navegador.
             </p>
           </section>
-        )}
-        {requestedOperation && (
-          <section className="operation-panel">
-            <div>
-              <strong>
-                {requestedOperation === "split"
-                  ? "Separar componentes conectados"
-                  : requestedOperation === "remesh"
-                    ? "Reconstruir topologia do GLB atual"
-                    : requestedOperation === "retexture"
-                      ? "Retexturizar o GLB atual com rebake PBR"
-                      : "Transformar malha"}
-              </strong>
-              <small>
-                {operationSupported
-                  ? "A operação usa o modelo aberto e cria um job derivado; o GLB original sempre será preservado."
-                  : operationReason}
-              </small>
-            </div>
-            {requestedOperation === "remesh" && (
-              <label>
-                Densidade / teto de triângulos
-                <input
-                  value={targetTriangles}
-                  onChange={(event) =>
-                    setTargetTriangles(
-                      event.target.value.replace(/[^0-9]/g, "").slice(0, 7),
-                    )
-                  }
-                  inputMode="numeric"
-                  min="100"
-                  max="2000000"
-                  disabled={!operationSupported}
-                />
-                <small>
-                  {operationSupported
-                    ? "Remesh usa esse orçamento para reconstruir a topologia; Simplificar apenas reduz ao teto, sempre sem regenerar pela imagem."
-                    : operationReason}
-                </small>
-              </label>
-            )}
-            {requestedOperation === "transform" && (
-              <div className="transform-grid">
-                <VectorFields
-                  label="Posição"
-                  values={advanced.translation}
-                  update={(translation) =>
-                    setAdvanced((current) => ({ ...current, translation }))
-                  }
-                />
-                <VectorFields
-                  label="Rotação °"
-                  values={advanced.rotation}
-                  update={(rotation) =>
-                    setAdvanced((current) => ({ ...current, rotation }))
-                  }
-                />
-                <VectorFields
-                  label="Escala"
-                  values={advanced.scale}
-                  update={(scale) =>
-                    setAdvanced((current) => ({ ...current, scale }))
-                  }
-                />
-              </div>
-            )}
-            <button
-              type="button"
-              disabled={
-                !operationSupported || !job || job.status !== "completed"
-              }
-              title={operationReason || "Criar operação derivada"}
-              onClick={() => runOperation(requestedOperation)}
-            >
-              {operationSupported
-                ? requestedOperation === "remesh"
-                  ? "Aplicar remesh ao modelo aberto"
-                  : "Criar operação derivada"
-                : "Worker indisponível"}
-            </button>
-            {requestedOperation === "remesh" && (
-              <button
-                type="button"
-                className="operation-secondary"
-                disabled={
-                  !simplifySupported || !job || job.status !== "completed"
-                }
-                title={
-                  simplifyCapability?.detail ||
-                  "Reduzir o GLB aberto ao teto definido"
-                }
-                onClick={() => runOperation("simplify")}
-              >
-                {simplifySupported
-                  ? "Simplificar ao teto"
-                  : "Simplificação indisponível"}
-              </button>
-            )}
-          </section>
-        )}
-        {activeRail === "texture" && job?.validation && (
-          <section className="texture-audit">
-            <strong>Auditoria PBR do job atual</strong>
-            <div>
-              <span className={job.validation.hasTexture ? "ok" : ""}>
-                Base color
-              </span>
-              <span
-                className={job.validation.hasMetallicRoughnessMap ? "ok" : ""}
-              >
-                Metal/Rough
-              </span>
-              <span className={job.validation.hasNormalMap ? "ok" : ""}>
-                Normal
-              </span>
-              <span className={job.validation.hasOcclusionMap ? "ok" : ""}>
-                Occlusion
-              </span>
-            </div>
-            <p>
-              {job.validation.message ||
-                "A auditoria examina os mapas realmente incorporados no GLB."}
-            </p>
-          </section>
-        )}
-        <details className="advanced-drawer trellis-compute">
-          <summary>
-            <SlidersHorizontal size={14} /> Compute e guidance TRELLIS{" "}
-            <ChevronDown size={14} />
-          </summary>
+        <section className="advanced-group">
+          <h2><SlidersHorizontal size={14} /> Compute e guidance</h2>
           <div className="advanced-fields">
             <label>
               GSS
@@ -1490,15 +1645,15 @@ function HomeStudio(props: HomeProps) {
             <label
               className="check-field"
               title={
-                activeProfile.id === "16gb"
+              f32Available
                   ? "Compute F32 do trellis-cli"
-                  : "Liberado somente pelo perfil de 16 GB"
+                : "Liberado somente pelo perfil de 16 GB"
               }
             >
               <input
                 type="checkbox"
                 checked={advanced.f32}
-                disabled={activeProfile.id !== "16gb"}
+                disabled={!f32Available}
                 onChange={(event) =>
                   setAdvanced((current) => ({
                     ...current,
@@ -1506,15 +1661,12 @@ function HomeStudio(props: HomeProps) {
                   }))
                 }
               />{" "}
-              F32 {activeProfile.id !== "16gb" ? "— requer 16 GB" : ""}
+              F32 {!f32Available ? "— requer perfil de 16 GB" : ""}
             </label>
           </div>
-        </details>
-        <details className="advanced-drawer">
-          <summary>
-            <Settings2 size={14} /> Opções avançadas reais{" "}
-            <ChevronDown size={14} />
-          </summary>
+        </section>
+        <section className="advanced-group">
+          <h2><Settings2 size={14} /> Opções avançadas</h2>
           <div className="advanced-fields">
             <label>
               Formato
@@ -1799,447 +1951,489 @@ function HomeStudio(props: HomeProps) {
               rows={2}
             />
           </label>
-        </details>
-        <div className="profile-note">
-          <span>
-            <Aperture size={15} />
-          </span>
-          <div>
-            <strong>
-              {activeProfile.label} · {activeProfile.vramLabel}
-            </strong>
-            <p>
-              Definido pelo instalador. A API recusa tiers acima do perfil e
-              serializa o uso da GPU.
-            </p>
-          </div>
-        </div>
-        {lastError && (
-          <div className="panel-error" role="status">
-            <CloudOff size={15} />
-            <span>{lastError}</span>
-            <button type="button" onClick={clearError} aria-label="Fechar">
-              <X size={14} />
-            </button>
+        </section>
+        {activeProfile && (
+          <div className="profile-note">
+            <span><Aperture size={15} /></span>
+            <div>
+              <strong>{activeProfile.label} · {activeProfile.vramLabel}</strong>
+              <p>Perfil informado pela instalação local.</p>
+            </div>
           </div>
         )}
-        <button
-          className="generate-cta"
-          type="button"
-          onClick={generate}
-          disabled={busy}
-        >
-          {busy ? (
-            <LoaderCircle className="spin" size={17} />
-          ) : (
-            <WandSparkles size={17} />
-          )}
-          <span>
-            {uploading
-              ? "Enviando imagem"
-              : busy
-                ? "Geração em andamento"
-                : "Gerar modelo 3D"}
-          </span>
-        </button>
-      </aside>
-      <section className="viewport-column" aria-label="Viewport de modelo 3D">
-        <div className="viewport-breadcrumb">
-          <span>
-            {activeRail === "texture"
-              ? "Auditoria de texturas 3D"
-              : "Viewport de modelo 3D"}
-          </span>
-          <span className="viewport-project">{projectName}</span>
-        </div>
-        <div className="viewport-canvas" ref={viewportRef}>
-          <Suspense
-            fallback={
-              <div className="viewport-loader">
-                <LoaderCircle className="spin" size={18} />
-                Abrindo viewport
-              </div>
-            }
-          >
-            <Viewer
-              ref={viewerRef}
-              modelUrl={generatedModelUrl}
-              cacheKey={job?.id}
-              view={view}
-              onLoaded={() => setModelError("")}
-              onError={setModelError}
-            />
-          </Suspense>
-          {!generatedModelUrl && (
-            <div className="empty-viewport">
-              <div className="empty-orbit">
-                <Box size={29} />
-              </div>
-              <strong>
-                {file
-                  ? "Pronto para gerar o modelo"
-                  : "Seu modelo aparecerá aqui"}
-              </strong>
-              <span>
-                {file
-                  ? "A imagem está na bancada. Clique em gerar para iniciar."
-                  : "Envie uma imagem no painel ao lado ou reabra um ativo."}
-              </span>
-            </div>
-          )}
-          {modelError && (
-            <div className="viewport-error" role="alert">
-              <CloudOff size={16} />
+            </fieldset>
+          </details>
+        )}
+        {!operationMode && file && !busy && !actionReadiness.canGenerate && (
+          <div className="availability-callout" role="status">
+            <CloudOff size={17} />
+            <div>
+              <strong>Geração indisponível</strong>
+              <p>{generationReasonText(actionReadiness.reason)}</p>
               <div>
-                <strong>Não foi possível abrir o modelo</strong>
-                <span>{modelError}</span>
+                <button type="button" onClick={retryConnection}>
+                  Tentar novamente
+                </button>
+                <button type="button" className="quiet" onClick={openDocs}>
+                  Ajuda
+                </button>
               </div>
-              <button type="button" onClick={() => setModelError("")}>
-                <X size={14} />
-              </button>
             </div>
-          )}
-          <div className="scene-data">
-            <span>Topologia</span>
-            <strong>{job?.validation?.triangles ? "Triangle" : "—"}</strong>
-            <span>Faces</span>
-            <strong>{formatCount(job?.validation?.triangles)}</strong>
-            <span>Vértices</span>
-            <strong>{formatCount(job?.validation?.vertices)}</strong>
           </div>
-          <div className="axis-indicator">
-            <i className="x">X</i>
-            <i className="y">Y</i>
-            <i className="z">Z</i>
-          </div>
-          <div className="viewport-actions">
-            <button
-              type="button"
-              title={
-                generatedModelUrl
-                  ? "Centralizar e enquadrar o modelo"
-                  : "Gere um modelo para centralizar"
-              }
-              aria-label="Centralizar modelo"
-              onClick={centerViewer}
-              disabled={!generatedModelUrl}
-            >
-              <Focus size={17} />
-            </button>
-            <button
-              type="button"
-              title={
-                generatedModelUrl
-                  ? "Baixar captura PNG"
-                  : "Gere um modelo para capturar"
-              }
-              aria-label="Capturar imagem"
-              onClick={captureViewer}
-              disabled={!generatedModelUrl}
-            >
-              <Camera size={16} />
-            </button>
-            <button
-              type="button"
-              title="Abrir viewport em tela cheia"
-              aria-label="Tela cheia"
-              onClick={() => void fullscreenViewer()}
-            >
-              <Maximize2 size={16} />
-            </button>
-          </div>
-          <div className="view-dock">
-            <button
-              type="button"
-              className={view === "perspective" ? "selected" : ""}
-              onClick={() => setView("perspective")}
-            >
-              3D
-            </button>
-            <button
-              type="button"
-              className={view === "front" ? "selected" : ""}
-              onClick={() => setView("front")}
-            >
-              Frente
-            </button>
-            <button
-              type="button"
-              className={view === "side" ? "selected" : ""}
-              onClick={() => setView("side")}
-            >
-              Lado
-            </button>
-            <i />
-            <span>Arraste para orbitar</span>
-          </div>
-        </div>
-        <section className="generation-console" aria-live="polite">
-          <div
-            className={`console-icon ${busy ? "working" : verified ? "verified" : ""}`}
-          >
-            {busy ? (
-              <LoaderCircle className="spin" size={18} />
-            ) : verified ? (
-              <CheckCircle2 size={18} />
-            ) : (
-              <Sparkles size={18} />
-            )}
-          </div>
-          <div className="console-copy">
+        )}
+        {operationMode && requestedOperation && displayModelUrl && (
+          <section className="operation-panel" aria-labelledby="operation-title">
             <div>
-              <strong>
-                {statusName(uploading ? "uploading" : job?.status)}
+              <strong id="operation-title">
+                {requestedOperation === "split"
+                  ? "Separar objetos"
+                  : requestedOperation === "remesh"
+                    ? "Reconstruir topologia"
+                    : requestedOperation === "retexture"
+                      ? "Atualizar textura PBR"
+                      : "Transformar malha"}
               </strong>
-              {job?.queuePosition ? (
-                <span className="queue-badge">Fila #{job.queuePosition}</span>
-              ) : null}
+              <small>
+                {operationSupported
+                  ? "Cria uma saída derivada e mantém o resultado original na biblioteca."
+                  : operationReason}
+              </small>
             </div>
-            <span>
-              {uploading
-                ? "Preparando a imagem para a fila local"
-                : stageText(job)}
-            </span>
-          </div>
-          <div className="console-tool">
-            <span>Executando agora</span>
-            <strong>
-              {busy
-                ? prettyTool(job?.currentTool)
-                : verified
-                  ? "Auditoria concluída"
-                  : "TRELLIS 2"}
-            </strong>
-          </div>
-          <div className="console-time">
-            <span>Tempo</span>
-            <strong>
-              {busy
-                ? formatTime(elapsed)
-                : job?.status === "completed"
-                  ? formatTime(job.elapsedSeconds)
-                  : "—"}
-            </strong>
-          </div>
-          <div className="console-time eta">
-            <span>Estimativa</span>
-            <strong>
-              {busy
-                ? job?.etaSeconds !== undefined
-                  ? `~${formatTime(job.etaSeconds)}`
-                  : "calculando…"
-                : "—"}
-            </strong>
-            <small>
-              {streamState === "live"
-                ? "tempo real · SSE"
-                : streamState === "connecting"
-                  ? "conectando SSE"
-                  : "atualização por polling"}
-            </small>
-          </div>
-          <div className="console-progress">
-            <div>
-              <span style={{ width: `${progress}%` }} />
-            </div>
-            <small>
-              {busy && progress > 0
-                ? `${progress}%`
-                : busy
-                  ? "em processamento"
-                  : verified
-                    ? "validado"
-                    : "aguardando"}
-            </small>
-          </div>
-          <div className="console-actions">
-            {isRunning(job) && (
-              <button type="button" onClick={cancel}>
-                Cancelar
-              </button>
+            {requestedOperation === "retexture" && displayJob?.validation && (
+              <details className="texture-audit">
+                <summary>Auditoria PBR do resultado</summary>
+                <div>
+                  <span className={displayJob.validation.hasTexture ? "ok" : ""}>Base color</span>
+                  <span className={displayJob.validation.hasMetallicRoughnessMap ? "ok" : ""}>Metal/Rough</span>
+                  <span className={displayJob.validation.hasNormalMap ? "ok" : ""}>Normal</span>
+                  <span className={displayJob.validation.hasOcclusionMap ? "ok" : ""}>Occlusion</span>
+                </div>
+                <p>{displayJob.validation.message || "Auditoria dos mapas incluídos no GLB."}</p>
+              </details>
             )}
-            {job?.status === "completed" && job.id && (
-              <a href={localApi.downloadUrl(job.id)}>
-                <Download size={15} /> Exportar
+            <fieldset className="operation-fields" disabled={busy}>
+              {requestedOperation === "remesh" && (
+                <label>
+                  Densidade ou teto de triângulos
+                  <input
+                    value={targetTriangles}
+                    onChange={(event) =>
+                      setTargetTriangles(event.target.value.replace(/[^0-9]/g, "").slice(0, 7))
+                    }
+                    inputMode="numeric"
+                    min="100"
+                    max="2000000"
+                  />
+                  <small>Remesh reconstrói a topologia. Simplificar apenas reduz ao teto definido.</small>
+                </label>
+              )}
+              {requestedOperation === "transform" && (
+                <div className="transform-grid">
+                  <VectorFields
+                    label="Posição"
+                    values={advanced.translation}
+                    update={(translation) => setAdvanced((current) => ({ ...current, translation }))}
+                  />
+                  <VectorFields
+                    label="Rotação °"
+                    values={advanced.rotation}
+                    update={(rotation) => setAdvanced((current) => ({ ...current, rotation }))}
+                  />
+                  <VectorFields
+                    label="Escala"
+                    values={advanced.scale}
+                    update={(scale) => setAdvanced((current) => ({ ...current, scale }))}
+                  />
+                </div>
+              )}
+              <button
+                type="button"
+                disabled={!operationSupported || !job || job.status !== "completed" || busy}
+                title={operationReason || "Criar saída derivada"}
+                onClick={() => runOperation(requestedOperation)}
+              >
+                {operationSupported
+                  ? requestedOperation === "remesh" ? "Aplicar remesh" : "Criar saída derivada"
+                  : "Indisponível nesta instalação"}
+              </button>
+              {requestedOperation === "remesh" && (
+                <button
+                  type="button"
+                  className="operation-secondary"
+                  disabled={!simplifySupported || !job || job.status !== "completed" || busy}
+                  title={simplifyCapability?.detail || "Reduzir o resultado ao teto definido"}
+                  onClick={() => runOperation("simplify")}
+                >
+                  {simplifySupported ? "Simplificar ao teto" : "Simplificação indisponível"}
+                </button>
+              )}
+            </fieldset>
+          </section>
+        )}
+        {displayModelUrl && downloadJobId && (
+          <section className="result-ready">
+            <div>
+              <CheckCircle2 size={18} />
+              <div>
+                <strong>{busy && operationMode ? "Resultado original preservado" : "Resultado pronto"}</strong>
+                <span>Arquivo GLB principal</span>
+              </div>
+            </div>
+            <a href={localApi.downloadUrl(downloadJobId)} download aria-label="Baixar GLB principal">
+              <Download size={17} /> Baixar GLB
+            </a>
+            {operationMode && originalDownloadJobId && job?.status === "completed" && (
+              <a
+                className="original-download"
+                href={localApi.downloadUrl(originalDownloadJobId)}
+                download
+                aria-label="Baixar GLB original"
+              >
+                Baixar GLB original
               </a>
             )}
-          </div>
-        </section>
-      </section>
-      <aside className="inspector-panel" aria-label="Ativos e propriedades">
-        <div className="inspector-tabs">
+          </section>
+        )}
+        {!operationMode && displayModelUrl && (
+          <section className="operation-picker" aria-labelledby="operation-picker-title">
+            <h2 id="operation-picker-title">Ferramentas do resultado</h2>
+            <p>Crie uma saída derivada sem substituir o GLB original.</p>
+            <div>
+              <button type="button" onClick={() => setRail("split")} disabled={busy}><Split size={16} />Separar objetos</button>
+              <button type="button" onClick={() => setRail("remesh")} disabled={busy}><ScanLine size={16} />Remesh e simplificar</button>
+              <button type="button" onClick={() => setRail("texture")} disabled={busy}><Paintbrush size={16} />Textura PBR</button>
+              <button type="button" onClick={() => setRail("edit")} disabled={busy}><Settings2 size={16} />Transformar</button>
+            </div>
+          </section>
+        )}
+        {!operationMode && (
           <button
+            className="generate-cta"
             type="button"
-            className={rightPanel === "assets" ? "active" : ""}
-            onClick={() => setRightPanel("assets")}
+            onClick={generate}
+            disabled={busy || (Boolean(file) && !actionReadiness.canGenerate)}
+            aria-busy={busy}
           >
-            <Layers3 size={14} /> Ativos
+            {busy ? <LoaderCircle className="spin" size={17} /> : file ? <WandSparkles size={17} /> : <ImagePlus size={17} />}
+            <span>
+              {uploading
+                ? "Preparando imagem"
+                : busy
+                  ? "Gerando modelo"
+                  : file
+                    ? "Gerar modelo 3D"
+                    : "Escolher imagem"}
+            </span>
           </button>
-          <button
-            type="button"
-            className={rightPanel === "properties" ? "active" : ""}
-            onClick={() => setRightPanel("properties")}
-          >
-            <Settings2 size={14} /> Propriedades
-          </button>
-        </div>
-        {rightPanel === "assets" ? (
-          <div className="asset-panel">
-            <div className="asset-head">
-              <span>Projeto</span>
-              <button
-                type="button"
-                title="Atualizar dados do job atual"
-                aria-label="Mais opções"
-                onClick={() => job && reopenJob(job.id)}
-              >
-                <RefreshCw size={14} />
-              </button>
-            </div>
-            <div className="asset-grid">
-              <button
-                className={previewUrl ? "asset-tile selected" : "asset-tile"}
-                type="button"
-                onClick={() => setRail("image")}
-              >
-                <div>
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="Imagem de referência" />
-                  ) : (
-                    <ImageIcon size={22} />
-                  )}
-                </div>
-                <span>Referência</span>
-              </button>
-              <button
-                className={
-                  generatedModelUrl ? "asset-tile selected" : "asset-tile"
-                }
-                type="button"
-                onClick={centerViewer}
-                disabled={!generatedModelUrl}
-                title={
-                  generatedModelUrl
-                    ? "Centralizar modelo"
-                    : "Modelo ainda não disponível"
-                }
-              >
-                <div className="model-asset">
-                  <FileBox size={23} />
-                </div>
-                <span>Modelo 3D</span>
-              </button>
-            </div>
-            <div className="asset-section">
-              <span>Artefatos da geração</span>
-              {job?.artifacts?.length ? (
-                job.artifacts.map((artifact, index) => (
-                  <a
-                    key={artifact.id || artifact.name || index}
-                    href={localApi.resolveAssetUrl(artifact.url)}
-                    className="artifact-row"
-                  >
-                    <FileBox size={14} />
-                    <span>
-                      {artifact.label ||
-                        artifact.name ||
-                        artifact.type ||
-                        "Arquivo gerado"}
-                    </span>
-                    <ChevronRight size={14} />
-                  </a>
-                ))
-              ) : (
-                <p>Nenhum artefato disponível ainda.</p>
-              )}
-            </div>
-            {latestActivity.length > 0 && (
-              <div className="activity-feed">
-                <span>Atividade real</span>
-                {latestActivity.map((item, index) => (
-                  <div key={`${item.at || index}-${item.message || ""}`}>
-                    <strong>{prettyTool(item.tool)}</strong>
-                    <p>{item.message}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="property-panel">
-            <PropertyRow
-              label="Pipeline"
-              value={
-                job?.fallbackReason
-                  ? "TRELLIS 2 · base preservada"
-                  : ultrashapeMode === "auto"
-                    ? "TRELLIS 2 + UltraShape"
-                    : "TRELLIS 2 · UV + PBR"
-              }
-            />
-            <PropertyRow
-              label="Ferramenta"
-              value={prettyTool(job?.currentTool)}
-            />
-            <PropertyRow
-              label="Formato"
-              value={(job?.output?.format || "glb").toUpperCase()}
-            />
-            <PropertyRow
-              label="Textura"
-              value={
-                job?.validation?.hasTexture === true
-                  ? "Incluída"
-                  : job?.status === "completed"
-                    ? "Não encontrada"
-                    : "Aguardando"
-              }
-            />
-            {job?.fallbackReason && (
-              <div className="fallback-note">
-                <CircleHelp size={13} />
-                <span>{job.fallbackReason}</span>
-              </div>
-            )}
-            <div className="validation-card">
+        )}
+        {(busy || job) && (
+          <section className="job-status" aria-live="polite" aria-atomic="true">
+            <div className="job-status-heading">
+              <span className={busy ? "job-status-icon working" : "job-status-icon"}>
+                {busy ? <LoaderCircle className="spin" size={17} /> : job?.status === "completed" ? <CheckCircle2 size={17} /> : <Sparkles size={17} />}
+              </span>
               <div>
-                <span>Auditoria de saída</span>
-                {verified ? (
-                  <em>
-                    <CheckCircle2 size={13} /> Validado
-                  </em>
-                ) : (
-                  <em className={job?.status === "completed" ? "warn" : ""}>
-                    {job?.status === "completed" ? "Pendente" : "Aguardando"}
-                  </em>
-                )}
+                <strong>
+                  {uploading
+                    ? "Preparando imagem"
+                    : job?.status === "queued"
+                      ? "Na fila"
+                      : job?.status === "running"
+                        ? "Criando modelo"
+                        : job?.status === "completed"
+                          ? verified ? "Resultado validado" : "Resultado concluído"
+                          : job?.status === "failed"
+                            ? "Geração interrompida"
+                            : job?.status === "cancelled"
+                              ? "Geração cancelada"
+                              : "Pronto para criar"}
+                </strong>
+                <span>
+                  {uploading
+                    ? "Enviando imagem"
+                    : job?.status === "queued"
+                      ? "Aguardando início"
+                      : job?.status === "running"
+                        ? "Preparando geometria e materiais"
+                        : job?.status === "completed"
+                          ? "O resultado está disponível para baixar."
+                          : job?.status === "failed"
+                            ? "Tente novamente quando a geração estiver disponível."
+                            : job?.status === "cancelled"
+                              ? "Você pode iniciar uma nova geração."
+                              : ""}
+                </span>
               </div>
-              <p>
-                {job?.validation?.message ||
-                  (verified
-                    ? "GLB, malha e materiais passaram na verificação."
-                    : "A verificação real aparece quando a geração terminar.")}
-              </p>
-              <ul>
-                <li className={job?.validation?.hasMesh ? "ok" : ""}>Malha</li>
-                <li className={job?.validation?.hasUv ? "ok" : ""}>UV</li>
-                <li className={job?.validation?.hasTexture ? "ok" : ""}>
-                  Base color
-                </li>
-                <li className={job?.validation?.hasPbrMaterial ? "ok" : ""}>
-                  Metal/Rough
-                </li>
-                <li className={job?.validation?.hasNormalMap ? "ok" : ""}>
-                  Normal
-                </li>
-                <li className={job?.validation?.hasOcclusionMap ? "ok" : ""}>
-                  Occlusion
-                </li>
-              </ul>
+              {busy && elapsed !== undefined && <time>{formatTime(elapsed)}</time>}
             </div>
-          </div>
+            {busy && (
+              <div className="job-progress-row">
+                <div className={progress > 0 ? "job-progress" : "job-progress indeterminate"}>
+                  <span style={progress > 0 ? { width: `${Math.min(100, progress)}%` } : undefined} />
+                </div>
+                <span>{progress > 0 ? `${Math.min(100, progress)}%` : "Em andamento"}</span>
+                {isRunning(job) && <button type="button" onClick={cancel}>Cancelar</button>}
+              </div>
+            )}
+          </section>
+        )}
+        {((lastError && !busy) || job?.status === "failed" || modelError) && (
+          <section className="failure-card" role="alert">
+            <strong>{viewerLoadFailure ? "Não foi possível exibir o modelo." : "Não foi possível concluir."}</strong>
+            <span>
+              {viewerLoadFailure
+                ? "Baixe o GLB principal ou consulte Detalhes para a falha de visualização."
+                : "Confira disponibilidade e tente novamente."}
+            </span>
+            {!viewerLoadFailure && file && actionReadiness.canGenerate && (
+              <button type="button" onClick={generate}>Tentar novamente</button>
+            )}
+            <details>
+              <summary>Detalhes</summary>
+              <p>{viewerLoadFailure ? modelError : lastError || job?.error || modelError || "Geração interrompida."}</p>
+              <button type="button" onClick={clearError}>Fechar aviso</button>
+            </details>
+          </section>
         )}
       </aside>
+      <section className="viewport-column" aria-label="Resultado 3D">
+        <div className="viewport-breadcrumb">
+          <strong>Resultado</strong>
+          <span className="viewport-project">
+            {displayJob?.metadata?.title || file?.name || displayJob?.inputFilename || "Aguardando imagem"}
+          </span>
+        </div>
+        <div
+          className={displayModelUrl ? "viewport-canvas has-result" : "viewport-canvas awaiting-result"}
+          ref={viewportRef}
+        >
+          {displayModelUrl ? (
+            <>
+              <Suspense
+                fallback={
+                  <div className="viewport-loader">
+                    <LoaderCircle className="spin" size={18} />
+                    Abrindo resultado
+                  </div>
+                }
+              >
+                <Viewer
+                  ref={viewerRef}
+                  modelUrl={displayModelUrl}
+                  cacheKey={displayJob?.id}
+                  view={view}
+                  onLoaded={() => setModelError("")}
+                  onError={setModelError}
+                />
+              </Suspense>
+              {modelError && (
+                <div className="viewport-error" role="alert">
+                  <CloudOff size={16} />
+                  <div>
+                    <strong>Não foi possível abrir o resultado</strong>
+                    <span>Abra os detalhes para consultar a falha.</span>
+                  </div>
+                  <button type="button" onClick={() => setModelError("")} aria-label="Fechar aviso">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+              {displayJob?.validation && (
+                <div className="scene-data" aria-label="Medidas verificadas do modelo">
+                  {displayJob.validation.triangles !== undefined && (
+                    <>
+                      <span>Triângulos</span>
+                      <strong>{formatCount(displayJob.validation.triangles)}</strong>
+                    </>
+                  )}
+                  {displayJob.validation.vertices !== undefined && (
+                    <>
+                      <span>Vértices</span>
+                      <strong>{formatCount(displayJob.validation.vertices)}</strong>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="axis-indicator" aria-hidden="true">
+                <i className="x">X</i>
+                <i className="y">Y</i>
+                <i className="z">Z</i>
+              </div>
+              <div className="viewport-actions">
+                <button type="button" title="Centralizar modelo" aria-label="Centralizar modelo" onClick={centerViewer}>
+                  <Focus size={17} />
+                </button>
+                <button type="button" title="Baixar captura PNG" aria-label="Capturar imagem" onClick={captureViewer}>
+                  <Camera size={16} />
+                </button>
+                <button type="button" title="Abrir em tela cheia" aria-label="Tela cheia" onClick={() => void fullscreenViewer()}>
+                  <Maximize2 size={16} />
+                </button>
+              </div>
+              <div className="view-dock" aria-label="Ângulo de visualização">
+                <button type="button" className={view === "perspective" ? "selected" : ""} onClick={() => setView("perspective")}>3D</button>
+                <button type="button" className={view === "front" ? "selected" : ""} onClick={() => setView("front")}>Frente</button>
+                <button type="button" className={view === "side" ? "selected" : ""} onClick={() => setView("side")}>Lado</button>
+                <i />
+                <span>Arraste para orbitar</span>
+              </div>
+            </>
+          ) : (
+            <div className="empty-result">
+              {previewUrl ? (
+                <img className="empty-reference" src={previewUrl} alt="Imagem escolhida para gerar o modelo" />
+              ) : (
+                <span className="empty-result-icon"><Box size={25} /></span>
+              )}
+              <div>
+                <strong>
+                  {job?.status === "failed"
+                    ? "Resultado indisponível"
+                    : busy
+                      ? "Modelo em criação"
+                      : file
+                        ? actionReadiness.canGenerate
+                          ? "Pronto para gerar"
+                          : "Imagem selecionada"
+                        : "Escolha uma imagem"}
+                </strong>
+                <p>
+                  {job?.status === "failed"
+                    ? "Confira os detalhes e tente novamente."
+                    : busy
+                      ? "O andamento e o cancelamento aparecem no painel."
+                      : file
+                        ? "Quando estiver pronto, o resultado aparecerá aqui."
+                        : "Seu modelo 3D aparecerá aqui."}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        {(telemetryJob || displayJob?.validation || displayJob?.artifacts?.length || latestActivity.length > 0 || lastError || job?.error || modelError) && (
+          <details className="result-details">
+            <summary>
+              <span>Detalhes do resultado</span>
+              <small>Auditoria · execução · arquivos · registros</small>
+              <ChevronDown size={15} />
+            </summary>
+            <div className="result-details-grid">
+              {telemetryJob && (
+                <section className="job-telemetry" aria-labelledby="job-telemetry-title">
+                  <h2 id="job-telemetry-title">Estado da execução</h2>
+                  <dl>
+                    <div><dt>Status</dt><dd>{statusName(telemetryJob.status)}</dd></div>
+                    {telemetryJob.queuePosition !== undefined && (
+                      <div><dt>Posição na fila</dt><dd>#{telemetryJob.queuePosition}</dd></div>
+                    )}
+                    <div>
+                      <dt>Tempo decorrido</dt>
+                      <dd>
+                        {telemetryJob.status === "completed"
+                          ? formatTime(telemetryJob.elapsedSeconds)
+                          : busy && elapsed !== undefined
+                            ? formatTime(elapsed)
+                            : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Estimativa</dt>
+                      <dd>
+                        {busy
+                          ? telemetryJob.etaSeconds !== undefined
+                            ? `~${formatTime(telemetryJob.etaSeconds)}`
+                            : "Calculando…"
+                          : "—"}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Atualizações</dt>
+                      <dd>
+                        {streamState === "live"
+                          ? "Tempo real · SSE"
+                          : streamState === "connecting"
+                            ? "Conectando SSE"
+                            : streamState === "polling"
+                              ? "Consulta periódica · polling"
+                              : "Sem atualização ativa"}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              )}
+              {displayJob?.validation && (
+                <section className="validation-card">
+                  <div>
+                    <span>Auditoria de saída</span>
+                    {displayJob.validation.valid ? (
+                      <em><CheckCircle2 size={13} /> Validado</em>
+                    ) : (
+                      <em className="warn">Verifique o resultado</em>
+                    )}
+                  </div>
+                  <p>{displayJob.validation.message || "Resultado auditado localmente."}</p>
+                  <ul>
+                    <li className={displayJob.validation.hasMesh ? "ok" : ""}>Malha</li>
+                    <li className={displayJob.validation.hasUv ? "ok" : ""}>UV</li>
+                    <li className={displayJob.validation.hasTexture ? "ok" : ""}>Base color</li>
+                    <li className={displayJob.validation.hasPbrMaterial ? "ok" : ""}>Metal/Rough</li>
+                    <li className={displayJob.validation.hasNormalMap ? "ok" : ""}>Normal</li>
+                    <li className={displayJob.validation.hasOcclusionMap ? "ok" : ""}>Occlusion</li>
+                  </ul>
+                  <PropertyRow label="Formato" value={(displayJob.output?.format || "glb").toUpperCase()} />
+                  <PropertyRow label="Textura" value={displayJob.validation.hasTexture ? "Incluída" : "Não encontrada"} />
+                </section>
+              )}
+              {displayJob?.artifacts && displayJob.artifacts.length > 0 && (
+                <section className="result-artifacts">
+                  <h2>Arquivos adicionais</h2>
+                  {displayJob.artifacts.map((artifact, index) => {
+                    const artifactName = [artifact.id, artifact.name, artifact.label, artifact.type].filter(Boolean).join(" ");
+                    const isFaithcArtifact = /faithc/i.test(artifactName);
+                    const label = isFaithcArtifact
+                      ? "FaithC · Geometria sem UV/PBR"
+                      : artifact.label || artifact.name || artifact.type || "Arquivo gerado";
+                    const url = localApi.resolveAssetUrl(artifact.url);
+                    return url ? (
+                      <a
+                        key={artifact.id || artifact.name || index}
+                        href={url}
+                        download={artifact.name || undefined}
+                        className="artifact-row"
+                        aria-label={"Baixar " + label}
+                      >
+                        <FileBox size={14} />
+                        <span>{label}</span>
+                        <Download size={14} />
+                      </a>
+                    ) : null;
+                  })}
+                </section>
+              )}
+              {latestActivity.length > 0 && (
+                <section className="activity-feed">
+                  <span>Registros recentes</span>
+                  {latestActivity.map((item, index) => (
+                    <div key={[item.at || index, item.message || ""].join("-")}>
+                      <strong>{prettyTool(item.tool)}</strong>
+                      <p>{item.message}</p>
+                    </div>
+                  ))}
+                </section>
+              )}
+              {(lastError || job?.error || modelError || displayJob?.fallbackReason) && (
+                <section className="diagnostic-detail">
+                  <h2>Diagnóstico</h2>
+                  <p>{displayJob?.fallbackReason || lastError || job?.error || modelError}</p>
+                  <small>
+                    Atualização: {streamState === "live" ? "tempo real" : streamState === "connecting" ? "conectando" : "consulta periódica"}
+                  </small>
+                </section>
+              )}
+            </div>
+          </details>
+        )}
+      </section>
     </div>
   );
 }
@@ -2248,6 +2442,8 @@ type AssetsProps = {
   history: GenerationJob[];
   allHistoryCount: number;
   loading: boolean;
+  loadingMore: boolean;
+  hasMore: boolean;
   error: string;
   query: string;
   setQuery: (value: string) => void;
@@ -2260,11 +2456,14 @@ type AssetsProps = {
   reopen: (id: string) => void;
   remove: (id: string) => void;
   reload: () => void;
+  loadMore: () => void;
 };
 function AssetsPage({
   history,
   allHistoryCount,
   loading,
+  loadingMore,
+  hasMore,
   error,
   query,
   setQuery,
@@ -2277,6 +2476,7 @@ function AssetsPage({
   reopen,
   remove,
   reload,
+  loadMore,
 }: AssetsProps) {
   return (
     <section className="assets-page">
@@ -2287,8 +2487,7 @@ function AssetsPage({
           </span>
           <h1>Ativos e histórico de gerações</h1>
           <p>
-            Dados carregados de <code>GET /api/jobs</code>. Favoritos e
-            exclusões são persistidos pela engine local.
+            Consulte gerações anteriores, filtre por status, marque favoritas e reabra arquivos disponíveis nesta engine.
           </p>
         </div>
         <button
@@ -2311,7 +2510,8 @@ function AssetsPage({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Buscar por arquivo, ferramenta ou ID"
+            placeholder="Buscar por arquivo, prompt ou ID"
+            aria-label="Buscar no histórico"
           />
         </label>
         <label>
@@ -2331,6 +2531,7 @@ function AssetsPage({
         <button
           type="button"
           className={favouritesOnly ? "filter-toggle active" : "filter-toggle"}
+          aria-pressed={favouritesOnly}
           onClick={() => setFavouritesOnly(!favouritesOnly)}
         >
           <Heart size={14} fill={favouritesOnly ? "currentColor" : "none"} />{" "}
@@ -2346,10 +2547,10 @@ function AssetsPage({
           </button>
         </div>
       )}
-      <div className="history-summary">
+      <div className="history-summary" role="status" aria-live="polite">
         Exibindo {history.length} de {allHistoryCount} jobs locais.
       </div>
-      <div className="history-list">
+      <div className="history-list" aria-busy={loading || loadingMore}>
         {loading && (
           <div className="history-empty">
             <LoaderCircle className="spin" size={21} />
@@ -2372,6 +2573,8 @@ function AssetsPage({
                   type="button"
                   className={favorite ? "favourite active" : "favourite"}
                   onClick={() => toggleFavourite(item.id)}
+                  aria-label={favorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+                  aria-pressed={favorite}
                   title={
                     favorite
                       ? "Remover dos favoritos"
@@ -2413,8 +2616,8 @@ function AssetsPage({
                   <Rotate3D size={15} /> Reabrir
                 </button>
                 {item.status === "completed" && (
-                  <a href={localApi.downloadUrl(item.id)}>
-                    <Download size={15} /> Exportar
+                  <a href={localApi.downloadUrl(item.id)} download aria-label="Baixar GLB principal">
+                    <Download size={15} /> Baixar GLB
                   </a>
                 )}
                 <button
@@ -2429,6 +2632,18 @@ function AssetsPage({
             </article>
           );
         })}
+        {hasMore && (
+          <button
+            className="history-load-more"
+            type="button"
+            onClick={loadMore}
+            disabled={loading || loadingMore}
+            aria-busy={loadingMore}
+          >
+            {loadingMore ? <LoaderCircle className="spin" size={16} /> : null}
+            {loadingMore ? "Carregando mais" : "Carregar mais"}
+          </button>
+        )}
       </div>
     </section>
   );
@@ -2439,10 +2654,19 @@ function DocsPage({
   capabilities,
   onHome,
 }: {
-  activeProfile: EngineProfile;
+  activeProfile?: EngineProfile;
   capabilities: EngineCapabilities | null;
   onHome: () => void;
 }) {
+  const faithcRuntime = !capabilities
+    ? "Consultando API"
+    : !capabilities.faithc.configured
+      ? "Instalação necessária"
+      : capabilities.faithc.probeState === "ready" || capabilities.faithc.available
+        ? "Configurado · CUDA validada"
+        : capabilities.faithc.probeState === "failed"
+          ? "Configurado · nova validação na fila"
+          : "Configurado · validação no job";
   return (
     <section className="docs-page">
       <header className="page-heading">
@@ -2474,8 +2698,11 @@ function DocsPage({
           <span>02</span>
           <h2>Escolha o tier aprovado</h2>
           <p>
-            O perfil ativo é <strong>{activeProfile.label}</strong>. Só os tiers
-            publicados pela instalação podem ser enviados ao backend.
+            {activeProfile ? (
+              <>O perfil ativo é <strong>{activeProfile.label}</strong>. Só as qualidades publicadas pela instalação podem ser usadas.</>
+            ) : (
+              "Perfil local ainda não identificado."
+            )}
           </p>
         </article>
         <article>
@@ -2494,12 +2721,19 @@ function DocsPage({
             materiais e mapas PBR detectáveis.
           </p>
         </article>
+        <article>
+          <span>05</span>
+          <h2>Instale FaithC</h2>
+          <p>
+            FaithC usa worker CUDA separado e adiciona geometria sem UV/PBR. Configure o worker conforme <code>docs/FAITHC.md</code>; o GLB principal continua disponível.
+          </p>
+        </article>
       </div>
       <section className="docs-runtime">
         <h2>Runtime detectado</h2>
         <PropertyRow
           label="Perfil"
-          value={`${activeProfile.label} · ${activeProfile.vramLabel}`}
+          value={activeProfile ? `${activeProfile.label} · ${activeProfile.vramLabel}` : "Não identificado"}
         />
         <PropertyRow
           label="Qualidades aprovadas"
@@ -2517,6 +2751,13 @@ function DocsPage({
               : capabilities?.ultrashapeDetail || "Ainda não disponível"
           }
         />
+        <PropertyRow
+          label="FaithC"
+          value={faithcRuntime}
+        />
+        <p className="docs-runtime-note">
+          Ativo, FaithC cria geometria num artefato separado sem UV/PBR. Consulte <code>docs/FAITHC.md</code> para instalação.
+        </p>
         <PropertyRow
           label="Operações derivadas"
           value={

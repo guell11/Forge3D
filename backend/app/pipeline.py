@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import re
+import contextlib
 from pathlib import Path
 
 from .adapters import AdapterError, DemoAdapter, MeshOperationAdapter, TrellisCppCliAdapter, TrellisServerAdapter, UltraShapeRefiner
 from .adapters.base import AdapterResult, GenerationAdapter
+from .adapters.faithc import FaithCRefiner
 from .config import Settings
 from .gpu import GPUOwnershipSupervisor
 from .profiles import get_profile, resolve_trellis_quality
@@ -19,6 +21,7 @@ from .schemas import (
     JobRecord,
     JobStatus,
     PipelineMode,
+    FaithCMode,
     UltraShapeMode,
 )
 from .storage import LocalStore, utc_now
@@ -53,6 +56,7 @@ class PipelineRunner:
         self.trellis_cli = TrellisCppCliAdapter(settings)
         self.operations = MeshOperationAdapter(settings)
         self.ultrashape = UltraShapeRefiner(settings)
+        self.faithc = FaithCRefiner(settings)
         self.gpu = GPUOwnershipSupervisor(settings)
         self.eta = LocalEtaEstimator(store, settings)
 
@@ -90,6 +94,7 @@ class PipelineRunner:
             await self.demo.capability(),
         ]
         refiner = await self.ultrashape.capability(active_profile)
+        faithc = await self.faithc.capability(active_profile)
         operations = await self.operations.capability()
         return {
             "queue_policy": "serial-gpu",
@@ -116,7 +121,7 @@ class PipelineRunner:
                 "ultrashape_modes": refiner["modes"],
             },
             "adapters": adapters,
-            "refiners": [refiner],
+            "refiners": [refiner, faithc],
             "operations": operations,
             "official_trellis2": {
                 "id": "trellis2-official",
@@ -337,6 +342,9 @@ class PipelineRunner:
     async def _ultrashape_log(self, job_id: str, message: str) -> None:
         self.store.add_log(job_id, "ultrashape", message)
 
+    async def _faithc_log(self, job_id: str, message: str) -> None:
+        self.store.add_log(job_id, "faithc", message)
+
     async def _trellis_log(self, job_id: str, source: str, message: str) -> None:
         """Expose real trellis-cli output and only use progress it emits."""
 
@@ -477,6 +485,168 @@ class PipelineRunner:
         )
         self._set_validation(job.id, result, ExportFormat.GLB)
         self._mark_completed(job.id, result, ExportFormat.GLB)
+
+    async def _run_faithc_geometry(self, job: JobRecord, result: AdapterResult) -> None:
+        """Create a separately audited geometry artifact; never replace the PBR result."""
+
+        if job.output_format != ExportFormat.GLB:
+            self._add_warning(
+                job.id,
+                "FaithC ignorado: o artefato de geometria requer uma saída GLB. O resultado principal foi preservado.",
+                fallback=True,
+            )
+            return
+
+        configuration_issue = self.faithc.configuration_issue
+        if configuration_issue:
+            self._add_warning(
+                job.id,
+                f"FaithC solicitado, mas não configurado: {configuration_issue} O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        if self._is_cancelled(job.id):
+            return
+
+        self._set_stage(
+            job.id,
+            stage="releasing_vram",
+            message="Confirmando VRAM livre para o worker FaithC isolado.",
+            progress=86,
+            tool=self.faithc.id,
+            indeterminate=True,
+        )
+        try:
+            release = await self.gpu.release_for(self.faithc.id)
+        except Exception as exc:
+            release = None
+            release_detail = f"falha ao confirmar liberação da GPU ({type(exc).__name__})"
+        else:
+            release_detail = release.detail
+        if release is None or not release.released:
+            self._add_warning(
+                job.id,
+                f"FaithC não iniciado: {release_detail} O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        if self._is_cancelled(job.id):
+            return
+
+        try:
+            probe = await self.faithc.probe(is_cancelled=lambda: self._is_cancelled(job.id))
+        except AdapterError as exc:
+            if self._is_cancelled(job.id):
+                return
+            self._add_warning(
+                job.id,
+                f"FaithC não iniciado: falha no probe isolado ({str(exc).strip() or type(exc).__name__}). O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+        if not probe.available:
+            self._add_warning(
+                job.id,
+                f"FaithC solicitado, mas indisponível: {probe.detail} O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        resolution = job.options.faithc_resolution
+        output_path = self.store.output_path(job.id, f"model-faithc-geometry-{resolution}.glb")
+        self._set_stage(
+            job.id,
+            stage="faithc_contouring",
+            message=f"FaithC — reconstruindo um artefato geométrico em resolução {resolution}.",
+            progress=87,
+            tool=self.faithc.id,
+            indeterminate=True,
+        )
+        try:
+            refined = await self.faithc.refine(
+                input_path=result.output_path,
+                output_path=output_path,
+                resolution=resolution,
+                probe=probe,
+                on_output=lambda message: self._faithc_log(job.id, message),
+                is_cancelled=lambda: self._is_cancelled(job.id),
+            )
+            self.gpu.mark_finished(self.faithc.id, keeps_gpu_resident=False)
+            if self._is_cancelled(job.id):
+                return
+            report = validate_model(refined.output_path, ExportFormat.GLB)
+        except Exception as exc:
+            self.gpu.mark_finished(self.faithc.id, keeps_gpu_resident=False)
+            with contextlib.suppress(OSError):
+                output_path.unlink(missing_ok=True)
+            self._add_warning(
+                job.id,
+                f"FaithC solicitado, mas falhou: {str(exc).strip() or type(exc).__name__}. O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        audit_path = self.store.output_path(job.id, "faithc-geometry-audit.json")
+        try:
+            audit_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "algorithm": "Faithful Contouring (FaithC)",
+                        "artifact_kind": "geometry-only",
+                        "source_filename": result.output_path.name,
+                        "resolution": resolution,
+                        "audit": report.model_dump(mode="json"),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            self._add_artifact(
+                job.id,
+                kind="faithc-audit",
+                label="FaithC — auditoria do artefato geométrico",
+                path=audit_path,
+                media_type="application/json",
+            )
+        except Exception as exc:
+            self._add_warning(
+                job.id,
+                f"FaithC gerou geometria, mas não foi possível gravar a auditoria: {type(exc).__name__}. O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        if not report.passed or report.meshes < 1 or report.vertices < 1 or report.triangles < 1:
+            detail = "; ".join(report.errors) or "o GLB não contém malha triangulada válida"
+            self._add_warning(
+                job.id,
+                f"FaithC produziu um artefato que falhou na auditoria: {detail}. O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+
+        try:
+            self._add_artifact(
+                job.id,
+                kind="faithc-geometry",
+                label=f"FaithC — geometria sem promessa de UV/PBR ({resolution})",
+                path=refined.output_path,
+            )
+        except Exception as exc:
+            self._add_warning(
+                job.id,
+                f"FaithC validou o artefato, mas não foi possível registrá-lo: {type(exc).__name__}. O GLB principal permanece intacto.",
+                fallback=True,
+            )
+            return
+        self._add_warning(
+            job.id,
+            "FaithC gerou um artefato geométrico separado; a saída principal mantém UV e PBR originais quando presentes.",
+        )
 
     async def _apply_generation_triangle_target(self, job: JobRecord, result: AdapterResult) -> AdapterResult:
         """Apply the requested ceiling to the generated GLB without rerunning 2D→3D.
@@ -659,6 +829,9 @@ class PipelineRunner:
                                 self._add_warning(job.id, "UltraShape concluiu a geometria, mas o GLB refinado não preservou UV/textura PBR. Nenhum normal map foi inventado; mantendo o GLB TRELLIS base validado.", fallback=True)
             elif wants_ultrashape and adapter_id == "demo":
                 self._add_warning(job.id, "UltraShape não é aplicado ao modo demo de diagnóstico.")
+
+            if job.options.faithc == FaithCMode.GEOMETRY:
+                await self._run_faithc_geometry(job, result)
 
             if self._is_cancelled(job.id):
                 self._mark_cancelled_after_work(job.id)

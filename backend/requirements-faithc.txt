@@ -1,0 +1,11 @@
+# Install a CUDA-enabled PyTorch build first, matching the local driver/toolkit.
+# FaithC and Atom3d build native extensions against that already installed torch.
+--find-links https://data.pyg.org/whl/torch-2.5.1+cu124.html
+
+numpy>=1.26,<3
+scipy>=1.11,<2
+einops>=0.8,<1
+trimesh>=4.4,<5
+torch-scatter>=2.1.2
+git+https://github.com/Luo-Yihao/Atom3d.git
+git+https://github.com/Luo-Yihao/FaithC.git

@@ -1,0 +1,3 @@
+# Install optional MCP support without changing the API's default requirements.
+-r requirements.txt
+mcp>=1.12,<2

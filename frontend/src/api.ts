@@ -14,7 +14,7 @@ import type {
   UploadedFile,
 } from './types'
 
-const configuredBase = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '')
+const configuredBase = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/+$/, '')
 const apiBase = configuredBase.endsWith('/api') ? configuredBase : `${configuredBase}/api`
 const assetBase = configuredBase.endsWith('/api') ? configuredBase.slice(0, -4) : configuredBase
 type JsonRecord = Record<string, unknown>
@@ -58,14 +58,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       },
     })
   } catch {
-    throw new ApiError('Não foi possível alcançar a API local. Inicie o backend e tente novamente.')
+    throw new ApiError('Não foi possível alcançar a API configurada. Confira o backend, o endereço do túnel e tente novamente.')
   }
   const rawBody = await response.text()
   let body: unknown = null
   try { body = rawBody ? JSON.parse(rawBody) : null } catch { body = rawBody }
   if (!response.ok) {
     const record = asRecord(body)
-    throw new ApiError(asString(record.detail) || asString(record.message) || `A API retornou erro ${response.status}.`, response.status)
+    const detail = asString(record.detail) || asString(record.message)
+    if (response.status === 401 || response.status === 403) {
+      throw new ApiError(
+        `A API recusou o acesso (HTTP ${response.status}). Confira autenticação do túnel/API.${detail ? ` ${detail}` : ''}`,
+        response.status,
+      )
+    }
+    throw new ApiError(detail || `A API retornou erro ${response.status}.`, response.status)
   }
   return body as T
 }
@@ -111,8 +118,8 @@ function normalizeValidation(raw: unknown): GenerationValidation | null {
     hasTexture: asBoolean(value.has_texture) ?? asBoolean(value.hasTexture),
     hasPbrMaterial: asBoolean(value.has_pbr_material) ?? asBoolean(value.hasPbrMaterial) ?? (pbrMaterials > 0 ? true : undefined),
     hasNormalMap: asBoolean(value.has_normal_map) ?? asBoolean(value.hasNormalMap),
-    hasOcclusionMap: asBoolean(value.has_occlusion_map) ?? asBoolean(value.hasOcclusionMap),
-    hasMetallicRoughnessMap: asBoolean(value.has_metallic_roughness_map) ?? asBoolean(value.hasMetallicRoughnessMap),
+    hasOcclusionMap: asBoolean(value.has_occlusion_texture) ?? asBoolean(value.has_occlusion_map) ?? asBoolean(value.hasOcclusionTexture) ?? asBoolean(value.hasOcclusionMap),
+    hasMetallicRoughnessMap: asBoolean(value.has_metallic_roughness_texture) ?? asBoolean(value.has_metallic_roughness_map) ?? asBoolean(value.hasMetallicRoughnessTexture) ?? asBoolean(value.hasMetallicRoughnessMap),
     materialReport: Object.keys(asRecord(value.material_report || value.materialReport)).length
       ? asRecord(value.material_report || value.materialReport) as Record<string, boolean | number | string>
       : undefined,
@@ -202,6 +209,16 @@ function normalizeCapabilities(raw: unknown): EngineCapabilities {
       : Array.isArray(root.qualities) ? root.qualities : []
   const refiners = Array.isArray(pipeline.refiners) ? pipeline.refiners : Array.isArray(root.refiners) ? root.refiners : []
   const ultra = asRecord(refiners.find((candidate) => String(asRecord(candidate).id || '').toLowerCase().includes('ultrashape')))
+  const faithc = asRecord(refiners.find((candidate) => String(asRecord(candidate).id || '').toLowerCase() === 'faithc'))
+  const supportedFaithCResolutions = [128, 256, 512] as const
+  const reportedFaithCResolutions = Array.isArray(faithc.resolutions)
+    ? faithc.resolutions.filter((value): value is 128 | 256 | 512 => supportedFaithCResolutions.includes(value as 128 | 256 | 512))
+    : []
+  const faithcResolutions = reportedFaithCResolutions.length ? reportedFaithCResolutions : [...supportedFaithCResolutions]
+  const reportedFaithCDefault = asNumber(faithc.recommended_resolution, 256)
+  const faithcRecommendedResolution = supportedFaithCResolutions.includes(reportedFaithCDefault as 128 | 256 | 512)
+    ? reportedFaithCDefault as 128 | 256 | 512
+    : 256
   const operations = asRecord(pipeline.operations || root.operations)
   const operationNames: OperationKind[] = ['split', 'simplify', 'remesh', 'retexture', 'transform']
   const rawByOperation = asRecord(operations.by_operation || operations.byOperation)
@@ -238,6 +255,15 @@ function normalizeCapabilities(raw: unknown): EngineCapabilities {
     ultrashapeAvailable: ultra.available === true,
     ultrashapeDetail: asString(ultra.detail) || asString(ultra.reason),
     ultrashapeModes: Array.isArray(ultra.modes) ? ultra.modes.filter((mode): mode is string => typeof mode === 'string') : [],
+    faithc: {
+      configured: faithc.configured === true,
+      available: faithc.available === true,
+      detail: asString(faithc.detail),
+      probeState: asString(faithc.probe_state) || asString(faithc.probeState),
+      resolutions: faithcResolutions,
+      recommendedResolution: faithcRecommendedResolution,
+      limitations: Array.isArray(faithc.limitations) ? faithc.limitations.filter((item): item is string => typeof item === 'string') : [],
+    },
     operationsAvailable: operations.available === true || advertisedOperations.length > 0,
     operationKinds: advertisedOperations,
     operationsDetail: asString(operations.detail),
@@ -249,9 +275,40 @@ function jobEnvelope(raw: unknown): GenerationJob {
   return normalizeJob(envelope.job || envelope)
 }
 
-function jobsEnvelope(raw: unknown): GenerationJob[] {
+export interface JobPage {
+  jobs: GenerationJob[]
+  total: number
+  limit: number
+  offset: number
+  nextOffset: number | null
+}
+
+export interface JobsQuery {
+  limit?: number
+  offset?: number
+  search?: string
+  status?: JobStatus
+  favorite?: boolean
+}
+
+function jobsEnvelope(raw: unknown): JobPage {
   const envelope = asRecord(raw)
-  return Array.isArray(envelope.jobs) ? envelope.jobs.map(normalizeJob) : []
+  const pagination = asRecord(envelope.pagination)
+  const jobs = Array.isArray(envelope.jobs) ? envelope.jobs.map(normalizeJob) : []
+  const nextOffsetValue = pagination.next_offset ?? pagination.nextOffset
+  const total = asNumber(pagination.total, jobs.length)
+  const limit = asNumber(pagination.limit, jobs.length)
+  const offset = asNumber(pagination.offset, 0)
+  const calculatedNextOffset = jobs.length && offset + jobs.length < total ? offset + jobs.length : null
+  return {
+    jobs,
+    total,
+    limit,
+    offset,
+    nextOffset: typeof nextOffsetValue === 'number' && Number.isFinite(nextOffsetValue)
+      ? nextOffsetValue
+      : calculatedNextOffset,
+  }
 }
 
 export type JobStreamState = 'disabled' | 'connecting' | 'live' | 'polling'
@@ -261,10 +318,11 @@ export const localApi = {
   async health(): Promise<EngineHealth> {
     const raw = await request<unknown>('/health')
     const value = asRecord(raw)
+    const queue = asRecord(value.queue)
     return {
       status: asString(value.status) || 'ready',
       demoMode: value.demo_mode === true || value.demoMode === true || value.demo_fallback === true,
-      queue: asNumber(value.queue, 0),
+      queue: asNumber(queue.pending, asNumber(value.queue, 0)),
       activeProfile: Object.keys(asRecord(value.active_profile)).length ? normalizeProfile(value.active_profile, 0) : undefined,
     }
   },
@@ -295,7 +353,15 @@ export const localApi = {
     return jobEnvelope(raw)
   },
   async job(jobId: string): Promise<GenerationJob> { return jobEnvelope(await request<unknown>(`/jobs/${encodeURIComponent(jobId)}`)) },
-  async jobs(limit = 100): Promise<GenerationJob[]> { return jobsEnvelope(await request<unknown>(`/jobs?limit=${Math.max(1, Math.min(limit, 200))}`)) },
+  async jobs(query: JobsQuery = {}): Promise<JobPage> {
+    const params = new URLSearchParams()
+    params.set('limit', String(Math.max(1, Math.min(query.limit ?? 50, 200))))
+    params.set('offset', String(Math.max(0, Math.floor(query.offset ?? 0))))
+    if (query.search?.trim()) params.set('search', query.search.trim())
+    if (query.status) params.set('status', query.status)
+    if (query.favorite !== undefined) params.set('favorite', String(query.favorite))
+    return jobsEnvelope(await request<unknown>(`/jobs?${params.toString()}`))
+  },
   async cancel(jobId: string): Promise<GenerationJob> { return jobEnvelope(await request<unknown>(`/jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST' })) },
   async patchJob(jobId: string, payload: { favorite?: boolean; metadata?: JobMetadata }): Promise<GenerationJob> {
     return jobEnvelope(await request<unknown>(`/jobs/${encodeURIComponent(jobId)}`, { method: 'PATCH', body: JSON.stringify(payload) }))

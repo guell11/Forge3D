@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "forge3d": {
+      "type": "local",
+      "command": [
+        "C:/path/to/open3d/backend/.venv-mcp/Scripts/python.exe",
+        "-m",
+        "app.mcp_server"
+      ],
+      "cwd": "C:/path/to/open3d/backend",
+      "enabled": true,
+      "environment": {
+        "FORGE3D_API_URL": "https://your-forge3d-host.example",
+        "FORGE3D_API_TOKEN": "{env:FORGE3D_API_TOKEN}"
+      }
+    }
+  }
+}

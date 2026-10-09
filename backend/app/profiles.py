@@ -143,7 +143,7 @@ def installed_trellis_qualities(profile: HardwareProfile, profile_path: Path | N
         model_sets = trellis.get("model_sets") if isinstance(trellis, dict) else None
         default_quant = trellis.get("default_quant") if isinstance(trellis, dict) else None
         allowed_quants = {item for item in model_sets if isinstance(item, str)} if isinstance(model_sets, list) else set()
-        if payload.get("profile") != profile.id.value or not isinstance(raw, list):
+        if not isinstance(payload, dict) or payload.get("profile") != profile.id.value or not isinstance(raw, list):
             raise ValueError("perfil incompatível")
         qualities: list[dict] = []
         for item in raw:
@@ -163,9 +163,10 @@ def installed_trellis_qualities(profile: HardwareProfile, profile_path: Path | N
                 or atlas < 256
                 or resolution > profile.target_resolution
                 or atlas > profile.max_atlas_resolution
-                or texture_resolution > profile.max_texture_resolution
                 or not isinstance(texture_resolution, int)
+                or isinstance(texture_resolution, bool)
                 or texture_resolution not in {512, 1024}
+                or texture_resolution > profile.max_texture_resolution
                 or (allowed_quants and quant not in allowed_quants)
             ):
                 continue

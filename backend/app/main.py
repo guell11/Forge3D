@@ -12,12 +12,14 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
+from .agent_api import router as agent_api_router
 from .pipeline import PipelineRunner
 from .profiles import all_profiles, get_profile, resolve_trellis_quality
 from .queue import SerialGPUQueue
 from .schemas import (
     CreateJobRequest,
     GenerationOptions,
+    FaithCMode,
     JobKind,
     JobPatchRequest,
     JobRecord,
@@ -190,6 +192,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ultrashape_octree_resolution=requested_options.ultrashape_octree_resolution,
             ultrashape_scale=requested_options.ultrashape_scale,
             ultrashape_low_vram=requested_options.ultrashape_low_vram,
+            faithc=requested_options.faithc,
+            faithc_resolution=requested_options.faithc_resolution,
             refine=requested_options.refine,
         )
         if effective_options.trellis_f32 and profile.vram_gb < 16:
@@ -212,6 +216,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="O refinamento externo opcional requer output_format='glb'.",
+            )
+        if (
+            effective_payload.options.faithc == FaithCMode.GEOMETRY
+            and effective_payload.output_format.value != "glb"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="O artefato de geometria FaithC requer output_format='glb'.",
             )
         job = _store(request).create_job(effective_payload)
         await _queue(request).enqueue(job.id)
@@ -346,6 +358,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Arquivo de saída não encontrado no armazenamento local.")
         return FileResponse(path, media_type=_media_type(path), filename=path.name)
 
+    app.include_router(agent_api_router)
     return app
 
 

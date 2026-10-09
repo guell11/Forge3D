@@ -44,10 +44,21 @@ export interface EngineCapabilities {
   ultrashapeAvailable: boolean
   ultrashapeDetail?: string
   ultrashapeModes: string[]
+  faithc: FaithCCapability
   operationsAvailable: boolean
   operationKinds: OperationKind[]
   operationsDetail?: string
   operationCapabilities: Partial<Record<OperationKind, OperationCapability>>
+}
+
+export interface FaithCCapability {
+  configured: boolean
+  available: boolean
+  detail?: string
+  probeState?: string
+  resolutions: Array<128 | 256 | 512>
+  recommendedResolution: 128 | 256 | 512
+  limitations: string[]
 }
 
 export type OperationKind = 'split' | 'simplify' | 'remesh' | 'retexture' | 'transform'
@@ -175,6 +186,8 @@ export interface GenerationRequest {
     ultrashape_octree_resolution?: number
     ultrashape_scale?: number
     ultrashape_low_vram?: boolean
+    faithc?: 'off' | 'geometry'
+    faithc_resolution?: 128 | 256 | 512
     seed?: number
   }
 }

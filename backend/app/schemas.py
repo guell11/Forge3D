@@ -54,6 +54,13 @@ class UltraShapeQuality(str, Enum):
     FULL = "full"
 
 
+class FaithCMode(str, Enum):
+    """FaithC is an explicit geometry-only reconstruction, disabled by default."""
+
+    OFF = "off"
+    GEOMETRY = "geometry"
+
+
 class TrellisBackgroundRemoval(str, Enum):
     AUTO = "auto"
     BIREFNET = "birefnet"
@@ -135,6 +142,8 @@ class GenerationOptions(BaseModel):
     ultrashape_octree_resolution: int | None = Field(default=None, ge=256, le=1_024)
     ultrashape_scale: float | None = Field(default=None, ge=0.1, le=1.5)
     ultrashape_low_vram: bool | None = None
+    faithc: FaithCMode = FaithCMode.OFF
+    faithc_resolution: Literal[128, 256, 512] = 256
     # Compatibility with earlier clients. ``refine=true`` maps to auto; an
     # explicit ``ultrashape=off`` always wins.
     refine: bool = False

@@ -1,0 +1,7 @@
+# Copy this table into ~/.codex/config.toml or a trusted project's .codex/config.toml.
+# Replace C:/path/to/open3d with this checkout's absolute path.
+[mcp_servers.forge3d]
+command = "C:/path/to/open3d/backend/.venv-mcp/Scripts/python.exe"
+args = ["-m", "app.mcp_server"]
+cwd = "C:/path/to/open3d/backend"
+env_vars = ["FORGE3D_API_URL", "FORGE3D_API_TOKEN"]
