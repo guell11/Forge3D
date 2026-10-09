@@ -1,109 +1,227 @@
 <div align="center">
-FORGE3D
-From a single image to a whole new dimension.
-Create. Refine. Explore. Export.
-An AI-powered 3D creation studio, built for your own machine.
-![Stars](https://img.shields.io/github/stars/guell11/Forge3D?style=for-the-badge&logo=github&color=8b5cf6)
-![Open Source](https://img.shields.io/badge/OPEN_SOURCE-8b5cf6?style=for-the-badge)
-![Local First](https://img.shields.io/badge/LOCAL_FIRST-111827?style=for-the-badge)
-![AI Powered](https://img.shields.io/badge/AI_POWERED-111827?style=for-the-badge)
+
+# ⚡ FORGE3D
+
+### YOUR IDEAS DESERVE ANOTHER DIMENSION.
+
+**One image. One click. A whole new world in 3D.**
+
+Turn images into 3D creations with the power of AI —  
+right from your own machine.
+
 <br>
-![Forge3D — AI 3D Creation Studio](https://github.com/user-attachments/assets/b6b8da8f-8068-4902-aa2f-d436e7b66d51)
-Your imagination is the input. 3D is the output.
-Turn reference images into 3D assets, enhance geometry, explore your creations, and bring them into your favorite workflows — all from one beautiful workspace.
-Get Started · Explore Features · AI Agents & MCP · Documentation
+
+[![GitHub Stars](https://img.shields.io/github/stars/guell11/Forge3D?style=for-the-badge&logo=github&color=8B5CF6)](https://github.com/guell11/Forge3D/stargazers)
+![AI Powered](https://img.shields.io/badge/AI-POWERED-8B5CF6?style=for-the-badge)
+![Local First](https://img.shields.io/badge/LOCAL-FIRST-18181B?style=for-the-badge)
+![3D Creation](https://img.shields.io/badge/3D-CREATION-18181B?style=for-the-badge)
+
+<br>
+
+![Forge3D Studio](https://github.com/user-attachments/assets/b6b8da8f-8068-4902-aa2f-d436e7b66d51)
+
+<br>
+
+### IMAGINE IT. GENERATE IT. FORGE IT.
+
+**Your personal AI-powered 3D creation studio.**
+
+[🚀 **GET STARTED**](#-start-creating) · [✨ **EXPLORE**](#-the-power-to-create) · [🤖 **AI AGENTS**](#-3d-creation-meets-ai-agents)
+
 </div>
+
 ---
-✨ Meet Forge3D
-3D creation should feel like creating, not configuring.
-Forge3D brings powerful image-to-3D AI into a modern, intuitive workspace. Start with an image. Watch it become a 3D asset. Preview, refine, and export without jumping between a dozen different tools.
-Whether you're building your next indie game, experimenting with AI, prototyping a product, or simply turning wild ideas into something tangible, Forge3D gives you a new way to create.
-Your ideas. Your GPU. Your creations.
-⚡ One image. Endless possibilities.
+
+## ✨ What if every image could become something more?
+
+A character concept. A game prop. A product idea. Something you dreamed up at 3 AM.
+
+**Now imagine bringing it into 3D.**
+
+That's Forge3D.
+
+An AI-powered creative workspace that turns reference images into 3D assets you can explore, refine, and export.
+
+No complicated creative pipeline to piece together.
+
+No endless switching between tools.
+
+Just **your imagination and the freedom to build.**
+
+---
+
+## ⚡ From pixels to possibilities
+
 <div align="center">
-01 — IMAGINE   →   02 — GENERATE   →   03 — REFINE   →   04 — EXPORT
-Drop in an image. Forge a model. Make it yours.
+
+### 🖼️ IMAGINE → ✨ GENERATE → 🔮 EXPLORE → 📦 EXPORT
+
+**Four steps. Infinite creative directions.**
+
 </div>
-💎 Everything you need to create
-	Feature	Why you'll love it
-🖼️	Image to 3D	Bring reference images into the third dimension.
-🧠	TRELLIS-powered creation	Explore AI-generated 3D assets with local generation workflows.
-🔺	UltraShape refinement	Take geometry further with optional AI-powered refinement.
-🧩	FaithC geometry	Explore an additional geometry-focused output when enabled.
-🎨	Materials & textures	Work with textured assets and inspect their material details.
-👁️	Interactive 3D viewer	Rotate, zoom, and explore your creations right in the browser.
-🛠️	Mesh tools	Simplify, transform, and refine assets with available operations.
-📦	GLB & OBJ export	Take your creations into other 3D workflows.
-🗂️	Creation gallery	Keep your generations, previews, and exports together.
-🤖	MCP integration	Connect Forge3D to AI coding agents and automate your creative workflow.
-🔒	Local-first workflow	Keep your creative workspace on your own hardware.
+
+<br>
+
+| | | |
+|:---:|---|---|
+| 🖼️ | **Image to 3D** | Give your ideas a whole new dimension. |
+| ✨ | **AI-Powered Creation** | Turn visual inspiration into 3D assets. |
+| 🔮 | **Interactive Preview** | Rotate, zoom, and experience your creations. |
+| 💎 | **Geometry Refinement** | Explore more refined shapes with optional AI tools. |
+| 🎨 | **Textured Creations** | Bring visual character into the third dimension. |
+| 📦 | **Ready to Export** | Take your assets into your favorite 3D workflows. |
+| 🗂️ | **Your Creative Gallery** | Keep your creations together in one place. |
+| 🤖 | **AI Agent Integration** | Make 3D generation part of your AI-powered workflow. |
+| 🖥️ | **Local-First** | Create with your own hardware, on your own terms. |
+
 ---
-🔺 Go beyond generation
-TRELLIS × UltraShape × FaithC
-Three powerful ways to explore what your image can become.
-TRELLIS — Create the foundation. Transform your reference image into a 3D asset, ready to preview and export.
-UltraShape — Push the geometry further. Add an optional refinement stage for projects where shape and surface quality matter.
-FaithC — Explore another dimension of detail. Generate an additional geometry-only GLB artifact alongside your primary output, when its optional worker is configured.
-UltraShape and FaithC are optional capabilities. Availability depends on your installation and hardware. FaithC is geometry-only and does not replace the main textured asset.
+
+## 🔥 The power to create
+
+### One studio. More ways to imagine.
+
+Forge3D brings together powerful AI tools to give your ideas room to evolve.
+
+**⚡ TRELLIS**  
+Turn an image into a 3D creation.
+
+**💎 UltraShape**  
+Take your geometry further with optional refinement.
+
+**🔺 FaithC**  
+Explore an additional geometry-focused result when enabled.
+
+Different tools. New possibilities. One creative space.
+
+> UltraShape and FaithC are optional features. FaithC produces a separate geometry-only asset, not a replacement for your main textured creation.
+
 ---
-🤖 Your AI agent now creates in 3D
-Meet Forge3D MCP
-What if your coding assistant could help turn images into 3D assets?
-With Forge3D's optional Model Context Protocol (MCP) bridge, AI agents such as Codex and OpenCode can work with your 3D generation pipeline.
-Ask your agent to submit an image, start a generation, check its progress, manage supported operations, and download the finished result — through Forge3D.
-From an idea in your editor to a 3D asset in your project.
-Connect your AI agent →
+
+## 🤖 3D creation meets AI agents
+
+### Your AI assistant just got a new superpower.
+
+Imagine working on a game, application, or creative project and asking your AI agent to help generate the 3D assets you need.
+
+**Forge3D makes that workflow possible.**
+
+With optional **MCP integration**, compatible agents such as **Codex** and **OpenCode** can interact with Forge3D to submit creations, follow their progress, and retrieve results.
+
+**Your code. Your ideas. Your 3D pipeline. Connected.**
+
+[**🤖 Explore MCP Integration →**](docs/MCP.md)
+
 ---
-🎮 Made for creators
-Game developers — Prototype props, objects, and visual ideas for your next world.
-3D artists — Explore new shapes, reference concepts, and creative directions.
-Indie makers — Move from inspiration to tangible 3D experiments faster.
-AI enthusiasts — Experiment with image-to-3D generation on your own machine.
-Developers — Connect 3D generation to your applications, tools, and AI agents.
+
+## 🎮 Built for people who create
+
+| 🎮 Game Developers | 🎨 3D Artists |
+|---|---|
+| Bring props, objects, and concepts into your worlds. | Explore shapes, ideas, and new creative directions. |
+
+| 🚀 Indie Makers | 🤖 AI Builders |
+|---|---|
+| Turn inspiration into something you can actually explore. | Connect AI-powered 3D creation to your workflows. |
+
+<div align="center">
+
+### You don't need a bigger imagination.
+
+**You need a new way to bring it to life.**
+
+</div>
+
 ---
-🚀 Get started
-Your next 3D creation is only a few steps away.
-1. Get Forge3D
+
+## 🚀 Start creating
+
+### Your next creation starts here.
+
+**01 — Get Forge3D**
+
 ```bash
 git clone https://github.com/guell11/Forge3D.git
 cd Forge3D
 ```
-2. Install your GPU profile
-Follow the installation guide and choose the setup that matches your machine.
-3. Launch the studio
-Windows:
+
+**02 — Set up your machine**
+
+Follow the [installation guide](docs/INSTALLATION.md) to choose the right setup for your hardware.
+
+**03 — Launch your studio**
+
+**Windows**
 ```bat
 run.bat
 ```
-Linux:
+
+**Linux**
 ```bash
 ./run.sh
 ```
-4. Start creating
-Open http://127.0.0.1:5173, upload an image, and bring your first asset to life.
-Full installation guide →
----
-🖥️ Your studio. Your rules.
-Forge3D is designed around a local-first creative experience. No mandatory cloud generation service. No subscription required to run the local application. No need to hand over every creative experiment to a hosted generator.
-Use your own hardware and keep control of your workflow.
-Model downloads and initial setup may require internet access. If you intentionally connect to a remote Forge3D server or tunnel, uploads and generated files are transmitted to that server.
----
-📚 Explore the docs
-Guide	Discover
-Installation	Set up Forge3D on your machine.
-User Manual	Explore the workspace and generation tools.
-MCP Integration	Connect Codex, OpenCode, and AI workflows.
-API & Backend	Build on top of Forge3D.
-Research & Limitations	Dive deeper into supported models and hardware.
-🌟 Help forge the future
-Forge3D is an independent open-source project built for people who believe creative AI should be accessible, flexible, and fun to explore.
-If Forge3D inspires you, give the repository a star. It helps more creators discover the project and supports its continued evolution.
-Contributions, ideas, bug reports, and feedback are welcome.
-⭐ Star Forge3D · 💬 Share feedback
----
+
+**04 — Bring your idea to life**
+
+Open **http://127.0.0.1:5173**.
+
+Upload an image.
+
+**Forge something amazing.**
+
 <div align="center">
-Stop imagining what it could look like.
-Forge it in 3D.
-FORGE3D
-Your imagination deserves another dimension.
+
+### [🚀 INSTALL FORGE3D →](docs/INSTALLATION.md)
+
+</div>
+
+---
+
+## 🖥️ Your machine. Your creativity. Your rules.
+
+Your ideas shouldn't depend on someone else's creative platform.
+
+Forge3D is built around a **local-first experience**, giving you more control over how and where you create.
+
+**No mandatory cloud generation service. No subscription required for local use.**
+
+Just your hardware, your workflow, and your next big idea.
+
+<sub>Initial setup and model downloads may require internet access. Remote server connections are not local/private processing.</sub>
+
+---
+
+## 📚 Go further
+
+**Ready to explore everything Forge3D can do?**
+
+[📖 User Guide](docs/MANUAL.md) · [⚙️ Installation](docs/INSTALLATION.md) · [🤖 MCP Integration](docs/MCP.md) · [🔬 Research](docs/RESEARCH.md)
+
+---
+
+<div align="center">
+
+## ⭐ LIKE WHAT YOU SEE?
+
+### Help more creators discover Forge3D.
+
+If you believe AI-powered 3D creation should be more accessible, flexible, and fun...
+
+**Give Forge3D a star. It makes a difference.**
+
+<br>
+
+[![Star Forge3D](https://img.shields.io/badge/⭐_STAR_FORGE3D-8B5CF6?style=for-the-badge)](https://github.com/guell11/Forge3D)
+[![Share Your Ideas](https://img.shields.io/badge/💬_SHARE_YOUR_IDEAS-18181B?style=for-the-badge)](https://github.com/guell11/Forge3D/issues)
+
+<br>
+
+---
+
+### DON'T JUST IMAGINE IT.
+
+# FORGE IT IN 3D.
+
+**FORGE3D**  
+*From imagination to dimension.*
+
 </div>
