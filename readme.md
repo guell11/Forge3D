@@ -18,8 +18,8 @@ right from your own machine.
 
 <br>
 
-![Forge3D Studio](<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/9ea2dc48-a714-46bb-8106-427687963ecb" />
-)
+<img width="1672" height="941" alt="image" src="https://github.com/user-attachments/assets/fc301ca1-9d9b-44cc-a560-22feb6c596b8" />
+
 
 <br>
 
