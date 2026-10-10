@@ -2,6 +2,7 @@ import { Bounds, Center, ContactShadows, Grid, OrbitControls, useGLTF } from '@r
 import { Canvas } from '@react-three/fiber'
 import { Component, forwardRef, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { ACESFilmicToneMapping } from 'three'
 
 export interface ViewerHandle {
   center: () => void
@@ -78,15 +79,14 @@ const Viewer = forwardRef<ViewerHandle, ViewerProps>(function Viewer({ modelUrl,
       dpr={[1, 1.5]}
       shadows
       gl={{ antialias: true, powerPreference: 'high-performance', alpha: false, preserveDrawingBuffer: true }}
-      onCreated={({ gl }) => { canvasRef.current = gl.domElement }}
+      onCreated={({ gl }) => { canvasRef.current = gl.domElement; gl.toneMapping = ACESFilmicToneMapping; gl.toneMappingExposure = 1.25 }}
     >
       <color attach="background" args={['#26282d']} />
       <fog attach="fog" args={['#26282d', 9, 19]} />
-      <ambientLight intensity={1.15} />
-      <hemisphereLight args={['#dce0ed', '#17202a', 0.85]} />
-      <directionalLight castShadow position={[4.8, 7, 4]} intensity={2.25} color="#fff3df" shadow-mapSize={[1024, 1024]} />
-      <pointLight position={[-4, 1.5, -3]} color="#665dd1" intensity={9} distance={9} />
-      <pointLight position={[3, 0, 3]} color="#41afbc" intensity={3} distance={7} />
+      <ambientLight intensity={1.55} />
+      <hemisphereLight args={['#f4f6ff', '#838b9a', 1.45]} />
+      <directionalLight castShadow position={[4.8, 7, 4]} intensity={2.8} color="#fff9ef" shadow-mapSize={[1024, 1024]} />
+      <directionalLight position={[-4, 3, -2]} intensity={1.7} color="#e5efff" />
       <Suspense fallback={<LoadingGeometry />}>
         {modelUrl && <Bounds fit clip observe margin={1.25}><Center><ModelBoundary key={modelUrl} onError={onError}><GeneratedModel url={modelUrl} onLoaded={onLoaded} /></ModelBoundary></Center></Bounds>}
       </Suspense>

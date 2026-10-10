@@ -300,11 +300,11 @@ export default function App() {
     uv: "xatlas",
     maxTokens: "16384",
     remeshBand: "",
-    decimationGrid: "",
+    decimationGrid: "8",
     webp: false,
     gss: "",
     gsh: "",
-    flashAttention: false,
+    flashAttention: true,
     f32: false,
     ultraQuality: "economy",
     ultraSteps: "12",
@@ -787,9 +787,8 @@ export default function App() {
         value.trim() && Number.isFinite(Number(value))
           ? Number(value)
           : undefined;
-      // "auto" resolves to the one-shot trellis-cli first.  Do not route a
-      // normal Forge3D job through the legacy resident HTTP server: it would
-      // require TRELLIS_AUTOSTART and retain VRAM between jobs.
+      // The backend selects a resident TRELLIS worker when explicitly enabled
+      // by the local engine configuration, retaining model weights across jobs.
       const next = await localApi.createJob({
         uploadId: upload.id,
         prompt: prompt.trim() || undefined,
@@ -2310,7 +2309,7 @@ function HomeStudio(props: HomeProps) {
             </div>
           )}
         </div>
-        {(telemetryJob || displayJob?.validation || displayJob?.artifacts?.length || latestActivity.length > 0 || lastError || job?.error || modelError) && (
+        {(Boolean(telemetryJob) || latestActivity.length > 0 || Boolean(lastError) || Boolean(modelError)) && (
           <details className="result-details">
             <summary>
               <span>Detalhes do resultado</span>

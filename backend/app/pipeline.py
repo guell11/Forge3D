@@ -99,17 +99,18 @@ class PipelineRunner:
         return {
             "queue_policy": "serial-gpu",
             "models_kept_loaded_by_api": False,
+            "persistent_trellis_worker": bool(self.settings.trellis_autostart and self.settings.trellis_server_url),
             "gpu_ownership": self.gpu.capability(),
             "default_pipeline": PipelineMode.TRELLIS_DETAIL.value,
             "pipeline_modes": {
                 PipelineMode.TRELLIS_DETAIL.value: {
                     "label": "TRELLIS 2 — malha, UV e PBR",
-                    "adapter": "trellis-cli gerenciado (primário), depois trellis-server",
+                    "adapter": "trellis-server persistente quando habilitado; caso contrário trellis-cli",
                     "fallback": "none",
                 },
                 PipelineMode.SMART_TEXTURED.value: {
                     "label": "Legado — roteado para TRELLIS 2",
-                    "adapter": "trellis-cli gerenciado (primário), depois trellis-server",
+                    "adapter": "trellis-server persistente quando habilitado; caso contrário trellis-cli",
                     "fallback": "none",
                 },
             },
@@ -135,7 +136,7 @@ class PipelineRunner:
                     "Use o runtime local trellis.cpp instalado pelo perfil."
                 ),
             },
-            "auto_selection": "trellis-cli gerenciado é a base. UltraShape automático só roda após probe/calibração e liberação de VRAM confirmadas.",
+            "auto_selection": "Servidor persistente quando habilitado, senão CLI; UltraShape exige liberação de VRAM confirmada.",
         }
 
     @staticmethod
@@ -171,6 +172,8 @@ class PipelineRunner:
         if job.pipeline_mode not in {PipelineMode.TRELLIS_DETAIL, PipelineMode.SMART_TEXTURED}:
             raise AdapterError(f"Pipeline desconhecido: {job.pipeline_mode}.")
         if requested == "auto":
+            if self.settings.trellis_autostart and self.settings.trellis_server_url and self.settings.trellis_server_bin and self.settings.trellis_server_bin.is_file() and self.settings.trellis_models_dir and self.settings.trellis_models_dir.is_dir():
+                return "trellis-server", self.trellis_server
             if self.trellis_cli.managed_configured or self.settings.trellis_cpp_command:
                 return "trellis-cli", self.trellis_cli
             if self.settings.trellis_server_url:
@@ -748,8 +751,11 @@ class PipelineRunner:
                 if not server_ready:
                     raise AdapterError(server_detail)
             elif adapter_id == "trellis-cli":
-                server_reachable, _ = await self.trellis_server._probe()
-                if server_reachable:
+                # Probe the local managed port only when the launcher has a
+                # running-server record. A normal CLI-only installation should
+                # not pay for an HTTP health probe on every generation.
+                managed_pid = self.settings.trellis_managed_pid_file
+                if managed_pid and managed_pid.is_file() and await self.gpu._port_open():
                     release = await self.gpu.release_existing_trellis_server_for_cli()
                     self._set_stage(
                         job.id,

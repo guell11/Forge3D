@@ -452,6 +452,7 @@ def test_managed_cli_builds_only_structured_trellis_arguments(tmp_path) -> None:
     for flag in ("--image", "--output", "--models", "--gpu", "--res", "--atlas", "--tex-res", "--bg-removal", "--xatlas", "--max-tokens", "--band", "--decim", "--webp", "--gss", "--gsh", "--no-fa", "--f32", "--require-gpu"):
         assert flag in command
     assert command[command.index("--decim") + 1] == "8"
+    assert command[command.index("--bg-removal") + 1] == "birefnet"
 
 
 def test_ultrashape_official_controls_are_bounded_and_structured(tmp_path) -> None:

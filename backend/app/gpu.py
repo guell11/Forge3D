@@ -83,6 +83,8 @@ class GPUOwnershipSupervisor:
         """
 
         if await self._port_open():
+            self._active_tool = "trellis-server"
+            self._persistent = True
             return True, "trellis.cpp já está acessível localmente."
         binary = self.settings.trellis_server_bin
         models = self.settings.trellis_models_dir

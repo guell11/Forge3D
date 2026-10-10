@@ -1,6 +1,28 @@
 # Forge3D no Linux T4 e Kaggle
 
+## Notebooks para rodar na nuvem
+
+| Ambiente | Notebook | Acelerador compatível |
+|---|---|---|
+| Kaggle | [Forge3D_Kaggle_T4.ipynb](../notebooks/Forge3D_Kaggle_T4.ipynb) | NVIDIA T4 + Internet ativada |
+| Google Colab | [Forge3D_Colab_GPU.ipynb](../notebooks/Forge3D_Colab_GPU.ipynb) | GPU NVIDIA CUDA com aproximadamente 8 GiB de VRAM ou mais |
+
+No Colab, abra o [notebook no Colab](https://colab.research.google.com/github/guell11/Forge3D/blob/main/notebooks/Forge3D_Colab_GPU.ipynb), selecione **Runtime → Change runtime type → GPU** e execute **Run all**. Esse link do GitHub estará disponível quando a versão nova for publicada na branch `main`. Ambos os notebooks instalam os componentes, solicitam o token ngrok com entrada oculta e imprimem a URL da interface, o token temporário e o link autenticado `/agent/SKILL.md`.
+
+**Google TPU v5e-1/v5e-8 não é suportada pelo gerador.** O runtime atual `trellis.cpp` usa binários CUDA; portar a inferência para TPU exige implementar kernels/backend para XLA ou JAX e validar os resultados. Não existe conversão automática de CUDA para TPU. Os notebooks são explicitamente voltados a GPUs NVIDIA.
+
+O link `/agent/SKILL.md` é protegido por autenticação; forneça o token ao agente por meio seguro, não em URL, código versionado nem notebook público. O armazenamento e os dados do notebook em nuvem não são locais.
+
 Notebook pronto: [`notebooks/Forge3D_Kaggle_T4.ipynb`](../notebooks/Forge3D_Kaggle_T4.ipynb).
+
+## Início rápido (sem configurar caminhos)
+
+1. Faça upload do notebook `Forge3D_Kaggle_T4.ipynb` no Kaggle e escolha GPU **T4** com **Internet** ativada.
+2. Se quiser executar **este código local atualizado**, crie um dataset privado com `artifacts/Forge3D_Kaggle_Source.zip` e anexe ao notebook. O arquivo será detectado automaticamente; sem dataset, o notebook clona o GitHub.
+3. Em **Add-ons → Secrets**, adicione `NGROK_AUTHTOKEN` (da conta ngrok) e `FORGE3D_ACCESS_TOKEN` (senha forte de pelo menos 32 caracteres). Sem secrets anexados, o notebook pede os valores em campo protegido.
+4. Clique em **Run All**. Quando aparecer o endereço HTTPS, abra-o, autentique-se e gere modelos na interface.
+
+O primeiro início baixa runtime e pesos GGUF e demora mais. A sessão Kaggle é temporária; interromper a GPU encerra o Forge3D.
 
 ## Kaggle
 

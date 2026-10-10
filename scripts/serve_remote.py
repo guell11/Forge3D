@@ -271,6 +271,13 @@ def create_remote_app(*, api_app=None, static_directory: Path | None = None, acc
         )
     static_files = StaticFiles(directory=str(distribution), html=True, check_dir=True)
 
+    @api_app.get("/agent/SKILL.md", include_in_schema=False)
+    async def agent_skill():
+        from fastapi.responses import FileResponse
+
+        skill = PROJECT_ROOT / "skills" / "forge3d-kaggle" / "SKILL.md"
+        return FileResponse(skill, media_type="text/markdown", filename="SKILL.md")
+
     async def serve_frontend(request: Request):
         asset_path = request.path_params.get("path", "")
         if asset_path == "api" or asset_path.startswith("api/"):

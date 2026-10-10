@@ -105,7 +105,7 @@ class TrellisServerAdapter:
                         # trellis-server accepts its own mode names, not a
                         # boolean: BiRefNet is the quality background-removal
                         # mode; threshold is the lower-overhead alternative.
-                        "bg_removal": "birefnet" if remove_background else "threshold",
+                        "bg_removal": options.trellis_background_removal.value if options.trellis_background_removal.value != "auto" else ("birefnet" if remove_background else "threshold"),
                     },
                     headers={"Accept": "model/gltf-binary,application/octet-stream"},
                 )
@@ -302,7 +302,13 @@ class TrellisCppCliAdapter:
             "--res", str(resolution),
             "--atlas", str(atlas_resolution or texture_resolution),
             "--tex-res", str(texture_resolution),
-            "--bg-removal", options.trellis_background_removal.value,
+            # A foreground mask matters for silhouette reconstruction. The
+            # CLI's automatic heuristic can misclassify dark screenshots as
+            # part of the object; use the installed BiRefNet model by default.
+            "--bg-removal", (
+                "birefnet" if options.trellis_background_removal.value == "auto"
+                else options.trellis_background_removal.value
+            ),
         ]
         command.append("--xatlas" if options.trellis_uv_mode == TrellisUvMode.XATLAS else "--box-uv")
         if options.trellis_max_tokens is not None:

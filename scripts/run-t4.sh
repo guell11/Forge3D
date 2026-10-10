@@ -17,7 +17,12 @@ fail() { printf 'Forge3D T4: %s\n' "$*" >&2; exit 1; }
 
 command -v nvidia-smi >/dev/null 2>&1 || fail 'nvidia-smi ausente; escolha GPU T4 no runtime Linux.'
 GPU_NAME="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -n 1 | xargs || true)"
-[[ "$GPU_NAME" == *T4* ]] || fail "GPU 0 não parece ser uma T4 (detectada: ${GPU_NAME:-indisponível})."
+if [[ "${FORGE3D_REQUIRE_T4:-1}" == "1" ]]; then
+  [[ "$GPU_NAME" == *T4* ]] || fail "GPU 0 não parece ser uma T4 (detectada: ${GPU_NAME:-indisponível})."
+else
+  GPU_MEMORY_MIB="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -n 1 | xargs || true)"
+  [[ "$GPU_MEMORY_MIB" =~ ^[0-9]+$ ]] && (( GPU_MEMORY_MIB >= 7168 )) || fail "GPU CUDA precisa de ~8 GB VRAM para o perfil Q4 (detectada: ${GPU_MEMORY_MIB:-0} MiB)."
+fi
 
 [[ -x "$PYTHON" ]] || fail 'Python do projeto ausente; execute bash instalação/install.sh --profile 8gb.'
 [[ -x "$RUNTIME_DIR/trellis-cli" ]] || fail 'trellis-cli ausente; execute o instalador Linux com perfil 8gb.'
