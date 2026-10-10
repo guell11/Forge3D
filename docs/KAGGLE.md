@@ -25,6 +25,8 @@ Notebook pronto: [`notebooks/Forge3D_Kaggle_T4.ipynb`](../notebooks/Forge3D_Kagg
 
 ## Início rápido (sem configurar caminhos)
 
+**Armazenamento Kaggle:** o notebook atualizado usa `/kaggle/temp/Forge3D` para o código, pesos Q8, ambientes Python, build, logs e GLBs. Os caches de pip/Hugging Face/Node também vão para `/kaggle/temp`, evitando consumir a partição menor `/kaggle/working`. A checagem de 20 GiB livres é feita no disco temporário. **Tudo em `/kaggle/temp` é apagado quando a sessão Kaggle termina**: faça download dos GLBs antes de desligar o runtime. Para escolher outro volume temporário, defina `FORGE3D_SCRATCH_DIR` antes da primeira célula de código.
+
 1. Faça upload do notebook `Forge3D_Kaggle_T4.ipynb` no Kaggle e escolha GPU **T4** com **Internet** ativada.
 2. Se quiser executar **este código local atualizado**, crie um dataset privado com `artifacts/Forge3D_Kaggle_Source.zip` e anexe ao notebook. O arquivo será detectado automaticamente; sem dataset, o notebook clona o GitHub.
 3. Em **Add-ons → Secrets**, adicione `NGROK_AUTHTOKEN` (da conta ngrok) e `FORGE3D_ACCESS_TOKEN` (senha forte de pelo menos 32 caracteres). Sem secrets anexados, o notebook pede os valores em campo protegido.
