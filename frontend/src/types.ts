@@ -25,6 +25,12 @@ export interface EngineHealth {
   demoMode: boolean
   queue?: number
   activeProfile?: EngineProfile
+  hardware?: {
+    detected: boolean
+    name?: string
+    memoryTotalMiB?: number
+    detail?: string
+  }
 }
 
 export interface TrellisQuality {
@@ -164,6 +170,7 @@ export interface GenerationRequest {
   adapter: 'auto' | 'demo' | 'trellis' | 'trellis-cli'
   pipelineMode?: PipelineMode
   options: {
+    resolution?: number
     texture_resolution: number
     target_triangles?: number
     mesh_quality: 'balanced' | 'high'

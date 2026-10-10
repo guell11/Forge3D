@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
+from .hardware import detect_gpu
 from .agent_api import router as agent_api_router
 from .pipeline import PipelineRunner
 from .profiles import all_profiles, get_profile, resolve_trellis_quality
@@ -106,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "demo_fallback": False,
             "demo_available_for_diagnostics": True,
             "active_profile": get_profile(settings.active_profile).to_api(),
+            "hardware": await asyncio.to_thread(detect_gpu, settings.trellis_cli_gpu_index),
             "queue": _queue(request).snapshot(),
             "storage": {"data_dir": str(settings.data_dir), "writable": settings.data_dir.is_dir()},
         }
@@ -136,8 +138,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/jobs", status_code=status.HTTP_202_ACCEPTED, tags=["jobs"])
     async def create_job(request: Request, payload: CreateJobRequest) -> dict:
-        # The installer selects a hardware budget.  A browser or a raw API
-        # request must not be able to raise that budget and cause a VRAM spike.
+        # The installed model set/quality must exist, but inference resolution
+        # is explicitly user-controlled. The CLI may still fail with OOM.
         profile = get_profile(request.app.state.settings.active_profile)
         requested_options = payload.options
         try:
@@ -164,12 +166,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
         effective_options = GenerationOptions(
             seed=requested_options.seed,
-            resolution=selected_quality["resolution"],
-            texture_resolution=min(
-                requested_options.texture_resolution or selected_quality.get("texture_resolution", 1024),
-                selected_quality.get("texture_resolution", 1024),
-                1024,
-            ),
+            resolution=requested_options.resolution or selected_quality["resolution"],
+            texture_resolution=requested_options.texture_resolution or selected_quality.get("texture_resolution", 1024),
             target_triangles=requested_options.target_triangles,
             remove_background=profile.background_removal,
             mesh_quality=requested_options.mesh_quality,

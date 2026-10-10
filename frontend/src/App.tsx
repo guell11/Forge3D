@@ -295,12 +295,14 @@ export default function App() {
   const [targetTriangles, setTargetTriangles] = useState("300000");
   const [faithcMode, setFaithcMode] = useState<"off" | "geometry">("off");
   const [faithcResolution, setFaithcResolution] = useState<128 | 256 | 512>(256);
+  const [geometryResolution, setGeometryResolution] = useState<number>(512);
+  const [textureResolution, setTextureResolution] = useState<number>(1024);
   const [advanced, setAdvanced] = useState<AdvancedSettings>({
     background: "auto",
     uv: "xatlas",
-    maxTokens: "16384",
+    maxTokens: "24576",
     remeshBand: "",
-    decimationGrid: "8",
+    decimationGrid: "",
     webp: false,
     gss: "",
     gsh: "",
@@ -339,6 +341,7 @@ export default function App() {
   historyFiltersRef.current = { query: historyQuery, status: historyStatus, favouritesOnly, favourites };
 
   const activeProfile = health?.activeProfile;
+  const hardware = health?.hardware;
   const trellisQualities = capabilities?.trellisQualities || [];
   const selectedQuality = trellisQualities.find(
     (quality) => quality.id === trellisQualityId,
@@ -606,7 +609,7 @@ export default function App() {
         setImageWarning(warning || "");
     });
     setNotice(
-      "Imagem carregada. A qualidade será limitada pelo perfil instalado.",
+      "Imagem carregada. Escolha a qualidade desejada; resoluções altas podem exigir mais VRAM.",
     );
   }
   function clearProject() {
@@ -796,7 +799,8 @@ export default function App() {
         adapter: "auto",
         pipelineMode: "trellis_detail",
         options: {
-          texture_resolution: selectedQuality?.textureResolution || 1024,
+          resolution: geometryResolution,
+          texture_resolution: textureResolution,
           target_triangles: Number.isFinite(
             Number.parseInt(targetTriangles, 10),
           )
@@ -1033,6 +1037,10 @@ export default function App() {
           trellisQualities={trellisQualities}
           selectedQuality={selectedQuality}
           selectQuality={setTrellisQualityId}
+          geometryResolution={geometryResolution}
+          setGeometryResolution={setGeometryResolution}
+          textureResolution={textureResolution}
+          setTextureResolution={setTextureResolution}
           ultraAvailable={ultraAvailable}
           ultraDetail={capabilities?.ultrashapeDetail}
           ultrashapeMode={ultrashapeMode}
@@ -1048,6 +1056,7 @@ export default function App() {
           advanced={advanced}
           setAdvanced={setAdvanced}
           activeProfile={activeProfile}
+          hardware={hardware}
           capabilities={capabilities}
           lastError={lastError}
           clearError={() => setLastError("")}
@@ -1108,6 +1117,7 @@ export default function App() {
       {page === "docs" && (
         <DocsPage
           activeProfile={activeProfile}
+          hardware={hardware}
           capabilities={capabilities}
           onHome={() => setPage("home")}
         />
@@ -1136,6 +1146,10 @@ type HomeProps = {
   trellisQualities: TrellisQuality[];
   selectedQuality?: TrellisQuality;
   selectQuality: (id: string) => void;
+  geometryResolution: number;
+  setGeometryResolution: (resolution: number) => void;
+  textureResolution: number;
+  setTextureResolution: (resolution: number) => void;
   ultraAvailable: boolean;
   ultraDetail?: string;
   ultrashapeMode: "auto" | "off";
@@ -1151,6 +1165,7 @@ type HomeProps = {
   advanced: AdvancedSettings;
   setAdvanced: React.Dispatch<React.SetStateAction<AdvancedSettings>>;
   activeProfile?: EngineProfile;
+  hardware?: EngineHealth["hardware"];
   capabilities: EngineCapabilities | null;
   lastError: string;
   clearError: () => void;
@@ -1201,6 +1216,10 @@ function HomeStudio(props: HomeProps) {
     trellisQualities,
     selectedQuality,
     selectQuality,
+    geometryResolution,
+    setGeometryResolution,
+    textureResolution,
+    setTextureResolution,
     ultraAvailable,
     ultraDetail,
     ultrashapeMode,
@@ -1216,6 +1235,7 @@ function HomeStudio(props: HomeProps) {
     advanced,
     setAdvanced,
     activeProfile,
+    hardware,
     capabilities,
     lastError,
     clearError,
@@ -1455,7 +1475,7 @@ function HomeStudio(props: HomeProps) {
           </>
         )}
         {!operationMode && (
-          <details className="optional-settings">
+          <details className="optional-settings" open>
             <summary>
               <span className="optional-summary-title">
                 <Settings2 size={15} /> Ajustes opcionais
@@ -1502,6 +1522,54 @@ function HomeStudio(props: HomeProps) {
                   ) : null}
                 </button>
               ))}
+            </div>
+          </section>
+          <section className="advanced-group" aria-label="Configurações TRELLIS antes da geração">
+            <h2><SlidersHorizontal size={14} /> Geometria, textura e processamento</h2>
+            <p className="capability-note">Você controla a qualidade. Resoluções acima do perfil recomendado podem consumir muita VRAM, demorar mais ou falhar por falta de memória.</p>
+            <div className="advanced-fields">
+              <label>
+                Resolução de geometria
+                <select
+                  value={geometryResolution}
+                  onChange={(event) => setGeometryResolution(Number(event.target.value))}
+                >
+                  {[512, 1024, 1536].map((value) => (
+                    <option key={value} value={value}>{value} px</option>
+                  ))}
+                </select>
+                <small>Recomendado para o perfil: {selectedQuality?.resolution || 512} px. Você pode escolher acima disso por sua conta e risco.</small>
+              </label>
+              <label>
+                Resolução de textura PBR
+                <select
+                  value={textureResolution}
+                  onChange={(event) => setTextureResolution(Number(event.target.value))}
+                >
+                  {[512, 1024].map((value) => (
+                    <option key={value} value={value}>{value} px</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Mapeamento UV
+                <select value={advanced.uv} onChange={(event) => setAdvanced((current) => ({ ...current, uv: event.target.value as AdvancedSettings["uv"] }))}>
+                  <option value="xatlas">xatlas</option>
+                  <option value="box">Box UV</option>
+                </select>
+              </label>
+              <label>
+                Remoção de fundo
+                <select value={advanced.background} onChange={(event) => setAdvanced((current) => ({ ...current, background: event.target.value as AdvancedSettings["background"] }))}>
+                  <option value="auto">Automático (BiRefNet)</option>
+                  <option value="birefnet">BiRefNet</option>
+                  <option value="threshold">Threshold</option>
+                </select>
+              </label>
+              <label className="check-field" title="Desativar FlashAttention pode aumentar o consumo de VRAM.">
+                <input type="checkbox" checked={advanced.flashAttention} onChange={(event) => setAdvanced((current) => ({ ...current, flashAttention: event.target.checked }))} />{" "}
+                FlashAttention {advanced.flashAttention ? "ativado" : "desativado"}
+              </label>
             </div>
           </section>
           <section className="faithc-card" aria-labelledby="faithc-heading">
@@ -1628,19 +1696,6 @@ function HomeStudio(props: HomeProps) {
                 placeholder="Padrão runtime"
               />
             </label>
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={advanced.flashAttention}
-                onChange={(event) =>
-                  setAdvanced((current) => ({
-                    ...current,
-                    flashAttention: event.target.checked,
-                  }))
-                }
-              />{" "}
-              FlashAttention
-            </label>
             <label
               className="check-field"
               title={
@@ -1709,38 +1764,6 @@ function HomeStudio(props: HomeProps) {
               </small>
             </label>
             <label>
-              Recorte de fundo
-              <select
-                value={advanced.background}
-                onChange={(event) =>
-                  setAdvanced((current) => ({
-                    ...current,
-                    background: event.target
-                      .value as AdvancedSettings["background"],
-                  }))
-                }
-              >
-                <option value="auto">Automático</option>
-                <option value="birefnet">BiRefNet</option>
-                <option value="threshold">Threshold</option>
-              </select>
-            </label>
-            <label>
-              UV
-              <select
-                value={advanced.uv}
-                onChange={(event) =>
-                  setAdvanced((current) => ({
-                    ...current,
-                    uv: event.target.value as AdvancedSettings["uv"],
-                  }))
-                }
-              >
-                <option value="xatlas">xatlas</option>
-                <option value="box">Box UV</option>
-              </select>
-            </label>
-            <label>
               Max tokens
               <input
                 value={advanced.maxTokens}
@@ -1805,8 +1828,8 @@ function HomeStudio(props: HomeProps) {
             </label>
           </div>
           <p className="format-note">
-            Resolução, atlas e quantização continuam limitados pelo perfil
-            escolhido no instalador.
+            O modelo GGUF (Q4/Q8) e o atlas dependem da instalação. A resolução
+            de geometria e textura é sua escolha, dentro dos valores aceitos pelo TRELLIS.
           </p>
           {ultrashapeMode === "auto" && (
             <fieldset className="ultra-advanced" disabled={!ultraAvailable}>
@@ -1955,8 +1978,8 @@ function HomeStudio(props: HomeProps) {
           <div className="profile-note">
             <span><Aperture size={15} /></span>
             <div>
-              <strong>{activeProfile.label} · {activeProfile.vramLabel}</strong>
-              <p>Perfil informado pela instalação local.</p>
+              <strong>{hardware?.detected ? hardware.name : "GPU não identificada"}</strong>
+              <p>{hardware?.detected && hardware.memoryTotalMiB ? `${(hardware.memoryTotalMiB / 1024).toFixed(1)} GiB físicos · ` : ""}{activeProfile.label} (configuração, não hardware)</p>
             </div>
           </div>
         )}
@@ -2650,10 +2673,12 @@ function AssetsPage({
 
 function DocsPage({
   activeProfile,
+  hardware,
   capabilities,
   onHome,
 }: {
   activeProfile?: EngineProfile;
+  hardware?: EngineHealth["hardware"];
   capabilities: EngineCapabilities | null;
   onHome: () => void;
 }) {
@@ -2695,10 +2720,10 @@ function DocsPage({
         </article>
         <article>
           <span>02</span>
-          <h2>Escolha o tier aprovado</h2>
+          <h2>Configure a geração</h2>
           <p>
             {activeProfile ? (
-              <>O perfil ativo é <strong>{activeProfile.label}</strong>. Só as qualidades publicadas pela instalação podem ser usadas.</>
+              <>O perfil configurado é <strong>{activeProfile.label}</strong>, não o modelo da GPU. Selecione resoluções na criação; valores altos podem demorar mais ou esgotar a VRAM.</>
             ) : (
               "Perfil local ainda não identificado."
             )}
@@ -2724,20 +2749,29 @@ function DocsPage({
           <span>05</span>
           <h2>Instale FaithC</h2>
           <p>
-            FaithC usa worker CUDA separado e adiciona geometria sem UV/PBR. Configure o worker conforme <code>docs/FAITHC.md</code>; o GLB principal continua disponível.
+            Se o worker FaithC estiver disponível, você pode ativar o refinamento geométrico na criação. Caso contrário, consulte <code>docs/FAITHC.md</code>; ele não altera o GLB principal.
           </p>
         </article>
       </div>
       <section className="docs-runtime">
-        <h2>Runtime detectado</h2>
+        <h2>Hardware e runtime</h2>
         <PropertyRow
-          label="Perfil"
-          value={activeProfile ? `${activeProfile.label} · ${activeProfile.vramLabel}` : "Não identificado"}
+          label="GPU detectada"
+          value={hardware?.detected ? hardware.name || "Nome não informado" : "Não identificada"}
+        />
+        <PropertyRow
+          label="Memória física da GPU"
+          value={hardware?.detected && hardware.memoryTotalMiB ? `${hardware.memoryTotalMiB.toLocaleString("pt-BR")} MiB (${(hardware.memoryTotalMiB / 1024).toFixed(1)} GiB)` : "Não identificada"}
+        />
+        <PropertyRow
+          label="Perfil configurado (não é a GPU)"
+          value={activeProfile ? `${activeProfile.id} · ${activeProfile.label}` : "Não identificado"}
         />
         <PropertyRow
           label="Qualidades aprovadas"
           value={
             capabilities?.trellisQualities
+              .filter((quality) => quality.available !== false)
               .map((quality) => quality.label)
               .join(", ") || "Consultando API"
           }
@@ -2755,7 +2789,7 @@ function DocsPage({
           value={faithcRuntime}
         />
         <p className="docs-runtime-note">
-          Ativo, FaithC cria geometria num artefato separado sem UV/PBR. Consulte <code>docs/FAITHC.md</code> para instalação.
+          {hardware?.detail || "A detecção de GPU será consultada na API."} Perfil e qualidades descrevem a configuração instalada, não comprovam qual GPU está presente. FaithC, UltraShape e operações dependem dos respectivos workers.
         </p>
         <PropertyRow
           label="Operações derivadas"

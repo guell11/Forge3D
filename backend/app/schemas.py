@@ -123,7 +123,9 @@ class GenerationOptions(BaseModel):
     trellis_uv_mode: TrellisUvMode = TrellisUvMode.XATLAS
     trellis_max_tokens: int | None = Field(default=None, ge=1_024, le=65_536)
     trellis_remesh_band: int | None = Field(default=None, ge=0, le=64)
-    trellis_decimation_grid: int | None = Field(default=8, ge=0, le=1_024)
+    # Leave mesh reduction to the engine unless explicitly requested.
+    # Applying --decim 8 to every image can destroy fine limbs/spokes.
+    trellis_decimation_grid: int | None = Field(default=None, ge=0, le=1_024)
     trellis_webp: bool | None = None
     trellis_gss: float | None = Field(default=None, ge=0.0, le=30.0)
     trellis_gsh: float | None = Field(default=None, ge=0.0, le=30.0)

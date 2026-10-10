@@ -12,6 +12,8 @@ if [[ -f "$PROJECT_ROOT/runtime/engine.env" ]]; then
   source "$PROJECT_ROOT/runtime/engine.env"
   set +a
 fi
+MODEL_DIR="${TRELLIS_MODELS_DIR:-$MODEL_DIR}"
+MODEL_QUANT="$(basename "$MODEL_DIR")"
 
 fail() { printf 'Forge3D T4: %s\n' "$*" >&2; exit 1; }
 
@@ -26,9 +28,9 @@ fi
 
 [[ -x "$PYTHON" ]] || fail 'Python do projeto ausente; execute bash instalação/install.sh --profile 8gb.'
 [[ -x "$RUNTIME_DIR/trellis-cli" ]] || fail 'trellis-cli ausente; execute o instalador Linux com perfil 8gb.'
-[[ -d "$MODEL_DIR" ]] || fail 'Pesos GGUF Q4 ausentes; execute o instalador Linux com perfil 8gb.'
+[[ -d "$MODEL_DIR" ]] || fail "Pesos GGUF $MODEL_QUANT ausentes; execute o instalador Linux com perfil 8gb."
 for model in birefnet.gguf dinov3.gguf ss_flow.gguf ss_dec.gguf shape_flow_512.gguf shape_flow_1024.gguf shape_dec.gguf tex_flow_512.gguf tex_flow_1024.gguf tex_dec.gguf; do
-  [[ -s "$MODEL_DIR/$model" ]] || fail "Peso GGUF Q4 ausente: $MODEL_DIR/$model"
+  [[ -s "$MODEL_DIR/$model" ]] || fail "Peso GGUF $MODEL_QUANT ausente: $MODEL_DIR/$model"
 done
 [[ -f "$PROJECT_ROOT/frontend/dist/index.html" ]] || {
   command -v npm >/dev/null 2>&1 || fail 'npm ausente; instale Node.js 20.19+ ou 22.12+ e tente novamente.'
@@ -41,7 +43,7 @@ done
   (cd "$PROJECT_ROOT/frontend" && npm install --no-audit --no-fund && VITE_API_BASE_URL=/api npm run build)
 }
 
-if [[ -z "${FORGE3D_ACCESS_TOKEN:-}" || ${#FORGE3D_ACCESS_TOKEN} -lt 32 ]]; then
+if [[ "${FORGE3D_PUBLIC_ACCESS:-0}" != "1" && ( -z "${FORGE3D_ACCESS_TOKEN:-}" || ${#FORGE3D_ACCESS_TOKEN} -lt 32 ) ]]; then
   fail 'Defina FORGE3D_ACCESS_TOKEN com pelo menos 32 caracteres antes de iniciar.'
 fi
 
@@ -52,6 +54,7 @@ export TRELLIS_CLI_REQUIRE_GPU=1
 export TRELLIS_DEFAULT_RESOLUTION=512
 export TRELLIS_DEFAULT_ATLAS=1024
 export TRELLIS_AUTOSTART=0
+# UltraShape requer runtime Linux calibrado; não anunciar disponibilidade inexistente.
 export ULTRASHAPE_ENABLED=0
 export TRELLIS_CLI_MODELS_DIR="$MODEL_DIR"
 export TRELLIS_CLI_BIN="$RUNTIME_DIR/trellis-cli"

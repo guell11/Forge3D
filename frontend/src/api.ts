@@ -319,11 +319,18 @@ export const localApi = {
     const raw = await request<unknown>('/health')
     const value = asRecord(raw)
     const queue = asRecord(value.queue)
+    const hardware = asRecord(value.hardware)
     return {
       status: asString(value.status) || 'ready',
       demoMode: value.demo_mode === true || value.demoMode === true || value.demo_fallback === true,
       queue: asNumber(queue.pending, asNumber(value.queue, 0)),
       activeProfile: Object.keys(asRecord(value.active_profile)).length ? normalizeProfile(value.active_profile, 0) : undefined,
+      hardware: {
+        detected: hardware.detected === true,
+        name: asString(hardware.name),
+        memoryTotalMiB: asNumber(hardware.memory_total_mib, 0) || undefined,
+        detail: asString(hardware.detail),
+      },
     }
   },
   async capabilities(): Promise<EngineCapabilities> {

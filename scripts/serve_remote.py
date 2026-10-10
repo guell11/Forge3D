@@ -287,6 +287,10 @@ def create_remote_app(*, api_app=None, static_directory: Path | None = None, acc
     api_app.add_api_route("/{path:path}", serve_frontend, methods=["GET", "HEAD"], include_in_schema=False)
     api_app.add_api_route("/", serve_frontend, methods=["GET", "HEAD"], include_in_schema=False)
 
+    if os.environ.get("FORGE3D_PUBLIC_ACCESS") == "1":
+        # Explicit public mode for temporary, user-owned cloud demos.
+        # Internet visitors can call the API and access generated files.
+        return api_app
     token = access_token if access_token is not None else os.environ.get("FORGE3D_ACCESS_TOKEN", "")
     return AccessGateway(api_app, token)
 

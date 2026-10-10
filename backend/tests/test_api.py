@@ -455,6 +455,27 @@ def test_managed_cli_builds_only_structured_trellis_arguments(tmp_path) -> None:
     assert command[command.index("--bg-removal") + 1] == "birefnet"
 
 
+def test_managed_cli_does_not_force_decimation_by_default(tmp_path) -> None:
+    cli = tmp_path / "trellis-cli.exe"
+    cli.write_bytes(b"placeholder")
+    models = tmp_path / "models"
+    models.mkdir()
+    adapter = TrellisCppCliAdapter(Settings(data_dir=tmp_path / "data", trellis_cli_bin=cli, trellis_cli_models_dir=models))
+    options = GenerationOptions()
+    assert options.trellis_decimation_grid is None
+    command = adapter._managed_command(
+        image_path=tmp_path / "input.png",
+        output_path=tmp_path / "output.glb",
+        seed=42,
+        resolution=512,
+        texture_resolution=1024,
+        models_dir=models,
+        options=options,
+    )
+    assert "--decim" not in command
+    assert "--bg-removal" in command
+
+
 def test_ultrashape_official_controls_are_bounded_and_structured(tmp_path) -> None:
     with pytest.raises(ValueError):
         GenerationOptions(ultrashape_steps=11)

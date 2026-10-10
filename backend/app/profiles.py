@@ -56,14 +56,14 @@ PROFILES: dict[ProfileId, HardwareProfile] = {
     ),
     ProfileId.GB8: HardwareProfile(
         id=ProfileId.GB8,
-        label="RTX 4060 / 8 GB",
+        label="Perfil de configuração · 8 GB",
         vram_gb=8,
         target_resolution=512,
         max_texture_resolution=1024,
         max_atlas_resolution=1024,
         default_seed=42,
         background_removal=True,
-        description="Perfil balanceado para uma RTX 4060 8 GB com backend local compatível.",
+        description="Configuração de orçamento de 8 GB; não identifica o modelo da GPU instalada.",
         notes=(
             "Recomendado: trellis-server/trellis.cpp configurado localmente.",
             "O TRELLIS.2 oficial não é suportado em 8 GB; upstream requer Linux e cerca de 24 GB ou mais.",

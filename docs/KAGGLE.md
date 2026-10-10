@@ -1,5 +1,13 @@
 # Forge3D no Linux T4 e Kaggle
 
+## Estado atual: Kaggle T4 com Q8 e FaithC
+
+O notebook Kaggle instala o GGUF **Q8** no perfil 8gb com geometria 512 e atlas 1024. Q8 na T4 e experimental: pode exceder VRAM durante a inferencia, mesmo com pesos instalados. Exige 20 GiB livres antes do download; o tamanho real varia conforme os GGUF remotos. Para voltar ao preset Q4, execute `bash 'instalacao/install.sh' --profile 8gb` usando o diretorio `instala??o` real (com acento), e use a versao de notebook Q4 se desejado.
+
+O FaithC e tentado automaticamente em ambiente isolado com Python 3.11/3.12, CUDA e probe de imports/alocacao na T4. So anuncia `FAITHC_ENABLED=1` quando o probe passa; falhas de compilacao ou ausencia de Python compat?vel mantem TRELLIS disponivel. Ative **Geometria** na interface para solicitar efetivamente o refinamento; instalacao nao significa aplicar automaticamente a cada job. O checkpoint, runtime Linux e calibracao UltraShape ainda nao foram portados/validados para Kaggle, portanto `ULTRASHAPE_ENABLED=0` permanece intencionalmente.
+
+Essa configuracao foi validada apenas em sintaxe/fluxo local, nao em uma GPU T4 real. O notebook e o instalador precisam ser publicados no GitHub antes de `Run All` clonar a versao atualizada.
+
 ## Notebooks para rodar na nuvem
 
 | Ambiente | Notebook | Acelerador compatível |
@@ -40,7 +48,7 @@ O primeiro início baixa runtime e pesos GGUF e demora mais. A sessão Kaggle é
 5. Abra a URL HTTPS impressa. Tela de login aceita `FORGE3D_ACCESS_TOKEN`. A sessão dura oito horas; cookie é `HttpOnly`, `SameSite=Strict` e recebe `Secure` quando ngrok encaminha HTTPS.
 6. Execute a célula **Encerrar** antes de parar o notebook para fechar túnel e serviço. Encerrar sessão Kaggle também interrompe ambos.
 
-Notebook instala `trellis.cpp` CUDA e o perfil 8gb existente: Q4, geometria 512, atlas 1024, GPU física 0 exposta como único dispositivo CUDA lógico `0`. Não soma VRAM de T4x2. Antes do instalador, usa Node já compatível ou baixa distribuição oficial Node 22 LTS e confere SHA-256 do manifesto upstream. A UI/API/GLB compartilham uma origem; o wrapper ASGI exige cookie de sessão ou `Authorization: Bearer ...` para API, EventSource, assets e saídas.
+Notebook Kaggle instala `trellis.cpp` CUDA em Q8 experimental, geometria 512, atlas 1024, GPU física 0 exposta como único dispositivo CUDA lógico `0`. Não soma VRAM de T4x2. Antes do instalador, usa Node já compatível ou baixa distribuição oficial Node 22 LTS e confere SHA-256 do manifesto upstream. A UI/API/GLB compartilham uma origem; o wrapper ASGI exige cookie de sessão ou `Authorization: Bearer ...` para API, EventSource, assets e saídas.
 
 Os dez arquivos GGUF Q4 atualmente referenciados pelo instalador somam cerca de 6,1 GiB pelos `Content-Length` retornados pelo Hugging Face. Notebook exige 10 GiB livres em `/kaggle/working` antes de baixar, para deixar espaço ao runtime, cache e resultados. Tamanho e disponibilidade podem mudar no repositório upstream.
 

@@ -12,7 +12,7 @@ DOWNLOADS_DIR="$RUNTIME_ROOT/downloads"
 LOG_DIR="$PROJECT_ROOT/logs/install"
 mkdir -p "$RUNTIME_ROOT" "$DOWNLOADS_DIR" "$LOG_DIR"
 LOG_FILE="$LOG_DIR/install-$(date +%Y%m%d-%H%M%S).log"
-PROFILE=""; SKIP_MODELS=0; SKIP_ENGINE=0; SKIP_FRONTEND=0; INSTALL_BLENDER=0; REPAIR=0
+PROFILE=""; QUANT_OVERRIDE=""; SKIP_MODELS=0; SKIP_ENGINE=0; SKIP_FRONTEND=0; INSTALL_BLENDER=0; REPAIR=0
 
 log() { printf '%s [%s] %s\n' "$(date '+%F %T')" "$1" "$2" | tee -a "$LOG_FILE"; }
 info() { log INFO "$*"; }
@@ -26,6 +26,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --profile) PROFILE="${2:-}"; shift 2 ;;
+    --quant) QUANT_OVERRIDE="${2:-}"; shift 2 ;;
     --skip-models) SKIP_MODELS=1; shift ;;
     --skip-engine) SKIP_ENGINE=1; shift ;;
     --skip-frontend) SKIP_FRONTEND=1; shift ;;
@@ -46,6 +47,16 @@ case "$PROFILE" in
   16gb) DEFAULT_QUANT=q4; QUANTS=(q4 q8); RESOLUTION=1536; ATLAS=2048; FACES=300000; TIERS='[{"id":"balanced","label":"Equilibrado","resolution":512,"atlas":2048,"texture_resolution":1024,"quant":"q4","description":"Q4, geometria 512, atlas 2K e PBR 1K."},{"id":"detailed","label":"Detalhado","resolution":1024,"atlas":2048,"texture_resolution":1024,"quant":"q8","description":"Q8, geometria 1024, atlas 2K e PBR 1K."},{"id":"maximum","label":"Máximo","resolution":1536,"atlas":2048,"texture_resolution":1024,"quant":"q8","description":"Q8, geometria 1536, atlas 2K e PBR 1K; experimental."}]' ;;
   *) die "Perfil inválido: $PROFILE" ;;
 esac
+if [[ -n "$QUANT_OVERRIDE" ]]; then
+  [[ "$QUANT_OVERRIDE" == q4 || "$QUANT_OVERRIDE" == q8 ]] || die "Quantização inválida: $QUANT_OVERRIDE"
+  if [[ "$PROFILE" == 8gb && "$QUANT_OVERRIDE" == q8 ]]; then
+    DEFAULT_QUANT=q8
+    QUANTS=(q8)
+    TIERS='[{"id":"balanced","label":"Q8 / 512 (T4 experimental)","resolution":512,"atlas":1024,"texture_resolution":1024,"quant":"q8","description":"GGUF Q8, geometria 512; exige T4 com VRAM livre suficiente."}]'
+  elif [[ "$QUANT_OVERRIDE" != "$DEFAULT_QUANT" ]]; then
+    die "--quant $QUANT_OVERRIDE não está habilitado para o perfil $PROFILE"
+  fi
+fi
 MODELS=(birefnet.gguf dinov3.gguf ss_flow.gguf ss_dec.gguf shape_flow_512.gguf shape_flow_1024.gguf shape_dec.gguf tex_flow_512.gguf tex_flow_1024.gguf tex_dec.gguf)
 
 require() { command -v "$1" >/dev/null 2>&1 || die "Comando obrigatório não encontrado: $1"; }
