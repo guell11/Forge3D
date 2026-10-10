@@ -83,10 +83,22 @@ require python3; require curl; require tar
 python3 -c 'import sys; assert sys.version_info >= (3,10),sys.version' || die 'Python 3.10+ é obrigatório.'
 if [[ "$REPAIR" == 1 ]]; then info 'Modo de reparo: arquivos válidos serão preservados e .part retomados.'; fi
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
-[[ -x "$PYTHON" ]] || python3 -m venv "$PROJECT_ROOT/.venv"
-"$PYTHON" -m pip install --upgrade pip 2>&1 | tee -a "$LOG_FILE"
-"$PYTHON" -m pip install -r "$PROJECT_ROOT/backend/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
-"$PYTHON" -c 'import fastapi,uvicorn; print("API_IMPORT_OK")' 2>&1 | tee -a "$LOG_FILE"
+if [[ ! -x "$PYTHON" ]]; then
+  info 'Criando ambiente virtual Python isolado.'
+  env -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 python3 -I -m venv --without-pip "$PROJECT_ROOT/.venv" || die 'Não foi possível criar o venv; confira python3-venv.'
+fi
+# Kaggle sometimes exposes sitecustomize/PYTHONPATH from the host image and
+# creates a valid venv without pip. Recover in place; never erase models/jobs.
+venv_python() { env -u PYTHONPATH -u PYTHONHOME PYTHONNOUSERSITE=1 "$PYTHON" -I "$@"; }
+if ! venv_python -m pip --version >/dev/null 2>&1; then
+  warn 'pip ausente no venv; instalando pelo bootstrap oficial HTTPS sem executar ensurepip.'
+  download 'https://bootstrap.pypa.io/get-pip.py' "$DOWNLOADS_DIR/get-pip.py" 100000
+  venv_python "$DOWNLOADS_DIR/get-pip.py" >>"$LOG_FILE" 2>&1 || die 'Bootstrap pip falhou; consulte o log de instalação.'
+fi
+venv_python -m pip --version >/dev/null 2>&1 || die 'pip não ficou disponível no venv.'
+venv_python -m pip install --upgrade pip 2>&1 | tee -a "$LOG_FILE"
+venv_python -m pip install -r "$PROJECT_ROOT/backend/requirements.txt" 2>&1 | tee -a "$LOG_FILE"
+venv_python -c 'import fastapi,uvicorn; print("API_IMPORT_OK")' 2>&1 | tee -a "$LOG_FILE"
 if [[ "$SKIP_FRONTEND" == 0 ]]; then require npm; (cd "$PROJECT_ROOT/frontend" && npm install) 2>&1 | tee -a "$LOG_FILE"; fi
 
 SERVER_BIN="$RUNTIME_DIR/trellis-server"
