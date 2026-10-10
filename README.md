@@ -6,7 +6,7 @@
 
 **One image. One click. A whole new world in 3D.**
 
-Turn images into 3D creations with the power of AI —
+Turn images into 3D creations with the power of AI —  
 right from your own machine **or a supported cloud GPU**.
 
 <br>
@@ -99,13 +99,13 @@ Just **your imagination and the freedom to build.**
 
 Forge3D brings together powerful AI tools to give your ideas room to evolve.
 
-**⚡ TRELLIS**
+**⚡ TRELLIS**  
 Turn an image into a 3D creation.
 
-**💎 UltraShape**
+**💎 UltraShape**  
 Take your geometry further with optional refinement.
 
-**🔺 FaithC**
+**🔺 FaithC**  
 Explore an additional geometry-focused result when enabled.
 
 Different tools. New possibilities. One creative space.
@@ -234,7 +234,7 @@ If you believe AI-powered 3D creation should be more accessible, flexible, and f
 
 # FORGE IT IN 3D.
 
-**FORGE3D**
+**FORGE3D**  
 *From imagination to dimension.*
 
 </div>
